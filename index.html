@@ -1,0 +1,2017 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>여행 동선 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 모바일 우선: 지도 포스터(미색 종이) → 범례·일차 요약 → 편집 패널 순으로 쌓이고, 넓은 화면에서만 2단 */
+:root {
+  --bg: #eef0f2;
+  --panel: #ffffff;
+  --fg: #1d2430;
+  --muted: #5d6675;
+  --line: #d6dbe2;
+  --field: #f6f7f9;
+  --accent: #1f5fd1;
+  --accent-ink: #ffffff;
+  --danger: #b4372b;
+
+  --paper: #fbf9f4;
+  --paper-ink: #1f2530;
+  --paper-muted: #7b7f86;
+  --paper-grid: #ece8de;
+  --track: #3d4657;
+
+  --m-walk: #8a7f72;
+  --m-bus: #179a5b;
+  --m-subway: #8a4fd6;
+  --m-train: #1f5fd1;
+  --m-taxi: #0f8fa0;
+  --m-plane: #56657f;
+  --m-none: #9aa0a8;
+
+  --c-food: #d6453d;
+  --c-sight: #e8822a;
+  --c-stay: #23314f;
+  --c-etc: #fbf9f4;
+
+  --f-display: "Gowun Batang", "Nanum Myeongjo", "Apple SD Gothic Neo", serif;
+  --f-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181e; --panel: #1c2129; --fg: #e4e8ee; --muted: #9aa3b0;
+    --line: #2e3540; --field: #232932; --accent: #6b9cf0; --accent-ink: #0d1420; --danger: #f08a7e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14181e; --panel: #1c2129; --fg: #e4e8ee; --muted: #9aa3b0;
+  --line: #2e3540; --field: #232932; --accent: #6b9cf0; --accent-ink: #0d1420; --danger: #f08a7e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.5;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  -webkit-text-size-adjust: 100%;
+}
+@media (min-width: 640px) {
+  body { padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); padding-top: 24px; padding-bottom: 40px; }
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 960px) { .wrap { grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; } }
+
+.poster { background: var(--paper); color: var(--paper-ink); border-radius: 6px; box-shadow: 0 1px 2px rgba(20,25,35,.08), 0 10px 28px rgba(20,25,35,.08); overflow: hidden; min-width: 0; }
+
+.head { padding: 20px 18px 6px; }
+@media (min-width: 640px) { .head { padding: 30px 36px 8px; } }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--paper-muted); }
+.title { font-family: var(--f-display); font-weight: 700; font-size: clamp(26px, 7vw, 42px); line-height: 1.15; margin: 4px 0 4px; text-wrap: balance; word-break: keep-all; }
+.sub { font-size: 14px; color: var(--paper-muted); margin: 0; word-break: keep-all; }
+@media (min-width: 640px) { .sub { font-size: 15px; } }
+
+.chips { display: flex; gap: 6px; overflow-x: auto; padding: 12px 18px 4px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+@media (min-width: 640px) { .chips { padding: 14px 36px 4px; } }
+.chip { flex: none; font: 600 13px var(--f-body); padding: 7px 14px; border-radius: 999px; border: 1.5px solid var(--paper-grid); background: var(--paper); color: var(--paper-ink); cursor: pointer; min-height: 36px; }
+.chip[aria-pressed="true"] { background: var(--paper-ink); border-color: var(--paper-ink); color: var(--paper); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.map-box { position: relative; width: 100%; height: 420px; background: var(--paper); overflow: hidden; }
+#lmap { position: absolute; inset: 0; background: var(--paper); font-family: var(--f-body); }
+#map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; z-index: 450; }
+.map-ctl a { width: auto !important; padding: 0 10px; font: 600 12px/30px var(--f-body) !important; color: var(--paper-ink); white-space: nowrap; }
+.map-ctl a.on { background: var(--paper-ink); color: var(--paper); }
+.leaflet-control-attribution { font-size: 9px !important; }
+.map-empty { z-index: 460; position: absolute; inset: 0; display: grid; place-items: center; color: var(--paper-muted); font-size: 15px; text-align: center; padding: 24px; }
+
+.summary { border-top: 1px solid var(--paper-grid); padding: 16px 18px 22px; display: grid; gap: 18px; }
+@media (min-width: 640px) { .summary { padding: 22px 36px 30px; } }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px !important; gap: 12px; font-variant-numeric: tabular-nums; margin: 0; }
+.stat dt { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--paper-muted); }
+@media (min-width: 640px) { .stats { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.stat dd { margin: 2px 0 0; font-family: var(--f-display); font-size: clamp(18px, 5vw, 22px); font-weight: 700; white-space: nowrap; }
+.stat dd small { font-family: var(--f-body); font-size: 12px; font-weight: 500; color: var(--paper-muted); margin-left: 3px; }
+
+.legend { display: grid; gap: 10px; }
+@media (min-width: 640px) { .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; } }
+.lg-h { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--paper-muted); margin-bottom: 6px; }
+.lg-items { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+.lg-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lg-item small { color: var(--paper-muted); font-size: 12px; }
+.lg-item svg { flex: none; }
+
+.days { display: grid; gap: 12px; }
+@media (min-width: 640px) { .days { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; } }
+.day { display: grid; gap: 6px; padding-top: 10px; border-top: 2px solid var(--paper-ink); min-width: 0; }
+.day-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 8px; }
+.day-h b { font-family: var(--f-display); font-size: 17px; }
+.day-h span { font-family: var(--f-mono); font-size: 12px; color: var(--paper-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.day ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.day li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 6px; word-break: keep-all; }
+.day li .via { font-size: 11.5px; color: var(--paper-muted); white-space: nowrap; }
+.mk { position: relative; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--c); color: #fff; border: 1.5px solid var(--c); }
+.mk svg { width: 15px; height: 15px; }
+.mk.stay { border-radius: 6px; }
+.mk.etc { color: var(--paper-ink); border-color: var(--paper-ink); }
+.mk b { position: absolute; top: -6px; right: -9px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; display: grid; place-items: center; font: 600 9px/1 var(--f-mono); background: var(--paper); color: var(--paper-ink); border: 1px solid var(--paper-ink); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 22px; min-width: 0; }
+@media (min-width: 640px) { .panel { padding: 20px; } }
+.panel h2 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.panel section { min-width: 0; }
+label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+input[type=text], textarea, select {
+  width: 100%; font: inherit; font-size: 16px; color: var(--fg); background: var(--field);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 0; min-height: 40px;
+}
+@media (min-width: 960px) { input[type=text], textarea, select { font-size: 14px; min-height: 36px; } }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { font-family: var(--f-mono); resize: vertical; min-height: 170px; line-height: 1.6; }
+.btn { font: inherit; font-size: 14px; font-weight: 500; border-radius: 6px; padding: 9px 14px; min-height: 40px; cursor: pointer; border: 1px solid var(--line); background: var(--field); color: var(--fg); }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.row-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.pts { display: grid; gap: 8px; margin-bottom: 10px; }
+.day-sep { font: 600 13px var(--f-body); color: var(--fg); display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.day-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.pt { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 8px; align-items: start; padding: 10px; border: 1px solid var(--line); border-radius: 6px; }
+.pt .mk { margin-top: 9px; width: 28px; height: 28px; }
+.pt .mk svg { width: 17px; height: 17px; }
+.pt .mk.etc { color: var(--fg); border-color: var(--fg); background: transparent; }
+.pt-fields { display: grid; gap: 6px; min-width: 0; }
+.pt-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.leg { display: flex; gap: 10px; padding-left: 22px; min-width: 0; }
+.leg-line { width: 2px; align-self: stretch; min-height: 40px; background: var(--line); flex: none; }
+.leg-body { display: grid; gap: 6px; flex: 1; min-width: 0; padding-block: 2px; }
+.leg-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.leg-top svg { flex: none; }
+.leg-top select { width: auto; flex: 0 1 140px; }
+.leg-in { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.leg-km { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pt-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pt-coords input { font-family: var(--f-mono); }
+.pt-ctl { display: grid; gap: 4px; }
+.icon-btn { width: 34px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--field); color: var(--muted); border-radius: 5px; cursor: pointer; font-size: 12px; padding: 0; }
+.icon-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn.del:hover { color: var(--danger); border-color: var(--danger); }
+.hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.msg { font-size: 12.5px; margin-top: 8px; }
+.msg:empty { display: none; }
+.msg.err { color: var(--danger); }
+.msg.ok { color: var(--accent); }
+.drop { display: block; border: 1.5px dashed var(--line); border-radius: 6px; padding: 16px; text-align: center; font-size: 14px; color: var(--muted); cursor: pointer; }
+.drop.over { border-color: var(--accent); color: var(--accent); }
+.drop input { display: none; }
+details summary { cursor: pointer; font-size: 14px; color: var(--accent); margin-bottom: 8px; padding: 4px 0; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 8px; }
+.toggle input { width: 18px; height: 18px; }
+code { font-family: var(--f-mono); font-size: 12px; }
+label.btn { display: inline-flex; align-items: center; }
+.btn.sm { padding: 6px 10px; min-height: 34px; font-size: 13px; }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.trip-save { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.trips { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.trip { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; }
+.trip.cur { border-color: var(--accent); }
+.trip b { display: block; font-size: 14px; word-break: keep-all; overflow-wrap: anywhere; }
+.trip small { display: block; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.trip .tag { color: var(--accent); font-weight: 600; }
+.trip-btns { display: flex; gap: 6px; }
+.trips-empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+.pt-name { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.pt-results { display: grid; gap: 4px; }
+.pt-results:empty { display: none; }
+.pt-results .msg { margin: 0; }
+.pt-results button { text-align: left; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--fg); cursor: pointer; min-width: 0; }
+.pt-results button:hover { border-color: var(--accent); }
+.pt-results button span { display: block; font-weight: 600; }
+.pt-results button small { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.pt.flash { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+a.gmap { font-size: 12px; color: var(--accent); white-space: nowrap; }
+.day li .via a { color: var(--paper-ink); font-weight: 600; margin-left: 6px; }
+.map-toast { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 470; background: var(--paper-ink); color: var(--paper); font-size: 13px; line-height: 1.4; padding: 8px 14px; border-radius: 18px; width: max-content; max-width: calc(100% - 24px); text-align: center; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.map-toast button { margin-left: 10px; background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; font: inherit; font-weight: 600; cursor: pointer; }
+#map [data-pt] { pointer-events: auto; cursor: grab; touch-action: none; }
+details.help { margin-top: 8px; }
+details.help > summary { font-size: 13px; margin-bottom: 0; }
+details.sec { min-width: 0; }
+details.sec > summary.sec-sum { list-style: none; display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 0; padding: 4px 0; min-height: 36px; color: var(--fg); font-size: 13px; }
+details.sec > summary.sec-sum::-webkit-details-marker { display: none; }
+details.sec > summary.sec-sum h2 { margin: 0; flex: none; }
+details.sec > summary.sec-sum span { flex: 1; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.sec > summary.sec-sum::after { content: "▾"; flex: none; color: var(--muted); font-size: 14px; transition: transform .15s; }
+details.sec[open] > summary.sec-sum { margin-bottom: 8px; }
+details.sec[open] > summary.sec-sum::after { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { details.sec > summary.sec-sum::after { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <article class="poster" aria-label="여행 동선 지도">
+    <header class="head">
+      <div class="eyebrow" id="capDate"></div>
+      <h1 class="title" id="capTitle"></h1>
+      <p class="sub" id="capSub"></p>
+    </header>
+    <nav class="chips" id="chips" aria-label="일차 선택"></nav>
+    <div class="map-box" id="mapBox">
+      <div id="lmap"></div>
+      <svg id="map" role="img" aria-labelledby="capTitle"></svg>
+      <div class="map-toast" id="mapToast" role="status" hidden></div>
+      <div class="map-empty" id="mapEmpty" hidden>지점을 2개 이상 입력하면 동선이 그려집니다.</div>
+    </div>
+    <div class="summary">
+      <dl class="stats">
+        <div class="stat"><dt>총 이동</dt><dd id="stDist">0<small>km</small></dd></div>
+        <div class="stat"><dt>일정</dt><dd id="stDays">0<small>일</small></dd></div>
+        <div class="stat"><dt>지점</dt><dd id="stCount">0<small>곳</small></dd></div>
+        <div class="stat"><dt>이동 시간</dt><dd id="stTime">—</dd></div>
+        <div class="stat"><dt>교통비</dt><dd id="stFare">—</dd></div>
+      </dl>
+      <div class="legend">
+        <div><div class="lg-h">이동수단</div><div class="lg-items" id="lgMode"></div></div>
+        <div><div class="lg-h">장소</div><div class="lg-items" id="lgCat"></div></div>
+      </div>
+      <div class="days" id="days"></div>
+    </div>
+  </article>
+
+  <aside class="panel">
+    <details class="sec" id="tripBox">
+      <summary class="sec-sum"><h2>내 여행</h2><span id="tripSum"></span></summary>
+      <div class="trip-save">
+        <input type="text" id="tripName" aria-label="저장할 이름" placeholder="저장할 이름 (비우면 여행 제목)">
+        <button class="btn primary" id="tripSave" type="button">저장</button>
+      </div>
+      <div class="msg" id="tripMsg"></div>
+      <ul class="trips" id="trips"></ul>
+      <div class="row-btns" style="margin-top:10px">
+        <button class="btn" id="tripNew" type="button">새 여행 시작</button>
+        <button class="btn" id="tripSample" type="button">예시 일정 불러오기</button>
+        <button class="btn" id="tripExport" type="button">백업 파일 내보내기</button>
+        <label class="btn" for="tripImport">백업 불러오기</label>
+        <input type="file" id="tripImport" accept=".json,application/json" hidden>
+      </div>
+      <p class="hint">저장한 여행은 지금 쓰는 브라우저에만 남습니다. 다른 폰이나 PC에서는 보이지 않고, 브라우저의 사이트 데이터를 지우면 함께 사라집니다. 아이폰 사파리는 이 페이지를 7일 넘게 열지 않으면 지울 수 있으니, 중요한 일정은 "백업 파일 내보내기"로 파일도 받아 두세요.</p>
+    </details>
+
+    <section>
+      <h2>이미지로 저장</h2>
+      <div class="row-btns">
+        <button class="btn primary" id="saveCur" type="button">지금 보는 지도 저장</button>
+        <button class="btn" id="saveAll" type="button">일차별로 모두 저장</button>
+      </div>
+      <div class="msg" id="saveMsg"></div>
+      <details class="help">
+      <summary>사용법 보기</summary>
+      <p class="hint">휴대폰에서는 한 손가락으로 화면을 내리고, 두 손가락으로 지도를 확대·축소합니다. 지도를 끌어서 옮기려면 지도 왼쪽 위의 [지도 이동]을 누르세요. [동선 맞춤]을 누르면 동선 전체가 다시 보입니다. [지점 추가]를 켜고 지도를 누르면 그 자리에 지점이 생기고, [내 위치]를 누르면 지금 위치가 파란 점으로 나옵니다. 마커를 짧게 누르면 이름과 [편집]이 뜨고, 길게 누른 채 끌면 위치를 옮길 수 있습니다(PC는 바로 끌기).</p>
+      <p class="hint">"지금 보는 지도 저장"은 화면에서 확대·이동해 둔 범위를 그대로 담습니다. [2일차]를 누른 상태면 2일차 목록과 거리·시간·요금이 같이 들어갑니다. "일차별로 모두 저장"은 일차마다 동선 전체가 보이게 자동으로 맞춰서 저장합니다. 휴대폰에서는 공유 창이 뜨면 "이미지 저장"을 고르면 사진첩에 들어갑니다.</p>
+      </details>
+    </section>
+
+    <details class="sec" id="secInfo">
+      <summary class="sec-sum"><h2>여행 정보</h2><span id="infoSum"></span></summary>
+      <label class="f">여행 제목<input type="text" id="inTitle"></label>
+      <label class="f">부제<input type="text" id="inSub"></label>
+      <label class="f">날짜<input type="text" id="inDate"></label>
+      <label class="f">배경 지도
+        <select id="inBase">
+          <option value="street">도로 지도 (도로·건물·공원·지명)</option>
+          <option value="topo">지형 지도 (산·숲·등고선까지)</option>
+          <option value="osm">OpenStreetMap 기본</option>
+          <option value="none">없음 (종이)</option>
+        </select>
+      </label>
+      <label class="f">교통비 통화
+        <select id="inCur">
+          <option value="¥">¥ 엔</option>
+          <option value="₩">₩ 원</option>
+          <option value="$">$ 달러</option>
+          <option value="€">€ 유로</option>
+        </select>
+      </label>
+    </details>
+
+    <details class="sec" id="secPts">
+      <summary class="sec-sum"><h2>지점 (이동 순서대로)</h2><span id="ptsSum"></span></summary>
+      <div class="pts" id="pts"></div>
+      <div class="row-btns">
+        <button class="btn primary" id="addPt" type="button">+ 지점 추가</button>
+        <button class="btn" id="addDay" type="button">+ 다음 날 시작</button>
+        <button class="btn" id="clearAll" type="button">전체 비우기</button>
+      </div>
+      <p class="hint">지점과 지점 사이의 선택칸에서 그 구간의 이동수단(도보·버스·지하철 등)을 고르고, 걸린 시간(분)과 요금을 적습니다. 시간은 "80" 또는 "1시간 20분" 둘 다 됩니다. 한 구간을 걷다가 버스를 탔다면 정류장을 지점으로 하나 추가해서 구간을 둘로 나누면 됩니다. 구글 지도에서 복사한 "34.6687, 135.5013" 같은 값을 위도 칸에 붙여넣으면 두 칸이 한 번에 채워집니다.</p>
+      <details>
+        <summary>여러 줄 한 번에 붙여넣기</summary>
+        <textarea id="bulk" placeholder="1일차&#10;간사이국제공항, 34.4320, 135.2304, 기타&#10;난바 숙소, 34.6646, 135.5016, 숙박, 기차, 45분, ¥970&#10;도톤보리, 34.6687, 135.5013, 구경, 도보, 5분&#10;2일차&#10;오사카성, 34.6873, 135.5262, 구경, 지하철, 20분, ¥240"></textarea>
+        <div class="row-btns" style="margin-top:8px">
+          <button class="btn" id="bulkReplace" type="button">목록 교체</button>
+          <button class="btn" id="bulkAppend" type="button">뒤에 추가</button>
+        </div>
+        <p class="hint">한 줄에 <code>이름, 위도, 경도, 장소분류, 이동수단, 시간, 요금</code> 순서입니다. 위도·경도 뒤의 칸은 생략할 수 있고 순서가 바뀌어도 됩니다. 시간은 "20분"이나 "1시간 20분"처럼, 요금은 "¥240", "240엔", "1500원"처럼 단위를 붙여 씁니다. 이동수단·시간·요금은 앞 지점에서 이 지점까지 오는 구간의 값입니다. 장소분류는 맛집·구경·숙박·기타, 이동수단은 도보·버스·지하철·기차·택시·비행기 중에서 씁니다. "1일차", "Day 2" 줄을 만나면 그 아래 지점들이 해당 일차로 들어갑니다.</p>
+        <div class="msg" id="bulkMsg"></div>
+      </details>
+    </details>
+
+    <details class="sec" id="secGpx">
+      <summary class="sec-sum"><h2>GPX 파일</h2><span>궤적 불러오기</span></summary>
+      <label class="drop" id="drop">
+        GPX 파일 선택 (PC는 끌어다 놓기 가능)
+        <input type="file" id="gpxFile" accept=".gpx,application/gpx+xml,text/xml,application/xml">
+      </label>
+      <div class="msg" id="gpxMsg"></div>
+      <label class="toggle" id="trackToggleWrap" hidden><input type="checkbox" id="showTrack" checked> GPX 실제 이동 궤적 표시</label>
+      <div class="row-btns" style="margin-top:8px">
+        <button class="btn" id="clearTrack" type="button" hidden>궤적 지우기</button>
+      </div>
+      <p class="hint">궤적(trkpt·rtept)은 진한 회색 실선, 웨이포인트(wpt)는 번호 마커가 됩니다. 기록 시각이 있으면 날짜별로 일차를 나누고, 없으면 트랙(trk) 단위로 나눕니다. GPX에는 이동수단 정보가 없어서 불러온 뒤 지점마다 골라 주세요.</p>
+    </details>
+
+    <details class="sec" id="secSvg">
+      <summary class="sec-sum"><h2>SVG 코드</h2><span></span></summary>
+      <button class="btn" id="copySvg" type="button">지도 SVG 코드 복사</button>
+      <div class="msg" id="copyMsg"></div>
+    </details>
+  </aside>
+</div>
+
+<script>
+const MODES = {
+  walk:   { label: "도보",   color: "--m-walk",   width: 3.4, dash: "0.1 6.5", cap: "round" },
+  bus:    { label: "버스",   color: "--m-bus",    width: 3.6 },
+  subway: { label: "지하철", color: "--m-subway", width: 3.6 },
+  train:  { label: "기차",   color: "--m-train",  width: 5, rail: true },
+  taxi:   { label: "택시·차", color: "--m-taxi",   width: 3.2, dash: "9 5" },
+  plane:  { label: "비행기", color: "--m-plane",  width: 2.2, dash: "3 6", arc: true },
+  none:   { label: "미지정", color: "--m-none",   width: 2.4, dash: "6 5" }
+};
+const CATS = {
+  food:  { label: "맛집", color: "--c-food" },
+  sight: { label: "구경", color: "--c-sight" },
+  stay:  { label: "숙박", color: "--c-stay" },
+  etc:   { label: "기타", color: "--c-etc" }
+};
+const ICONS = {
+  food: "M7 3v6.5M4.5 3v4.2a2.5 2.5 0 0 0 5 0V3M7 9.7V21M17 21V3c-2.2 1.2-3.5 4-3.5 8.5H17",
+  sight: "M3.5 8.5h3.2L8.6 6h6.8l1.9 2.5h3.2v10.5H3.5zM12 16.6a3.3 3.3 0 1 0 0-6.6 3.3 3.3 0 0 0 0 6.6z",
+  stay: "M3 6v13M3 15h18v4M21 15v-2.5A3.5 3.5 0 0 0 17.5 9H11v6M6.8 12.6a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z",
+  etc: "M6 21V4M6 4.5h11l-2.2 4 2.2 4H6"
+};
+const MODE_ICONS = {
+  walk: { d: "M15.5 4.5a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0zM13 8.5l-2 6 3 2.5 1 4.5M11 14.5l-2.5 6.5M12.5 9L9 10.5l-1.5 3M13 9.5l2 3 3.5 1", flip: true },
+  bus: { d: "M6 3.5h12a2 2 0 0 1 2 2V18H4V5.5a2 2 0 0 1 2-2zM4 11h16M7 21v-3M17 21v-3M7.5 14.5h.01M16.5 14.5h.01" },
+  subway: { d: "M8 3h8a4 4 0 0 1 4 4v7a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a4 4 0 0 1 4-4zM4 10h16M8 13.5h.01M16 13.5h.01M8.5 17L6 21M15.5 17l2.5 4" },
+  train: { d: "M2 16.5h14.5c3.3 0 5.5-1.8 5.5-3.5 0-2.3-4-4.5-9-4.5H4a2 2 0 0 0-2 2zM2 19.5h20M5 11.5h3M10 11.5h3", flip: true },
+  taxi: { d: "M5 17v-4.5L7 7h10l2 5.5V17zM5 17v2.5M19 17v2.5M4 12.5h16M8 14.8h.01M16 14.8h.01M10 7V5h4v2" },
+  plane: { d: "M21 12c0-.8-.7-1.5-1.5-1.5H15L10 3H8l2.5 7.5H6L4 8H2.5l1.5 4-1.5 4H4l2-2.5h4.5L8 21h2l5-7.5h4.5c.8 0 1.5-.7 1.5-1.5z", fill: true, rotate: true }
+};
+const WORDS = {
+  "맛집": "food", "식당": "food", "카페": "food", "음식": "food", "먹기": "food", "food": "food",
+  "구경": "sight", "관광": "sight", "명소": "sight", "쇼핑": "sight", "sight": "sight",
+  "숙박": "stay", "숙소": "stay", "호텔": "stay", "료칸": "stay", "stay": "stay", "hotel": "stay",
+  "기타": "etc", "etc": "etc",
+  "도보": "walk", "걷기": "walk", "walk": "walk",
+  "버스": "bus", "bus": "bus",
+  "지하철": "subway", "전철": "subway", "메트로": "subway", "subway": "subway", "metro": "subway",
+  "기차": "train", "열차": "train", "jr": "train", "신칸센": "train", "train": "train",
+  "택시": "taxi", "차": "taxi", "택시·차": "taxi", "자동차": "taxi", "렌트카": "taxi", "taxi": "taxi", "car": "taxi",
+  "비행기": "plane", "항공": "plane", "plane": "plane", "flight": "plane"
+};
+
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+const BASEMAPS = {
+  street: { url: ESRI + "World_Street_Map/MapServer/tile/{z}/{y}/{x}", maxZoom: 19, attr: 'Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a>', short: "Tiles © Esri" },
+  topo:   { url: ESRI + "World_Topo_Map/MapServer/tile/{z}/{y}/{x}", maxZoom: 19, attr: 'Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a>', short: "Tiles © Esri" },
+  osm:    { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", maxZoom: 19, attr: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>', short: "© OpenStreetMap" },
+  none:   {}
+};
+
+const SAMPLE = {
+  title: "오사카·교토 3박 4일",
+  sub: "난바에서 이틀, 교토에서 하루 묵는 간사이 일정 (예시 데이터)",
+  date: "2026. 11. 20 — 11. 23",
+  points: [
+    { day: 1, name: "간사이국제공항", lat: 34.4320, lon: 135.2304, cat: "etc", mode: "none" },
+    { day: 1, name: "난바 숙소", lat: 34.6646, lon: 135.5016, cat: "stay", mode: "train", mins: 45, fare: 970 },
+    { day: 1, name: "도톤보리", lat: 34.6687, lon: 135.5013, cat: "sight", mode: "walk", mins: 5 },
+    { day: 1, name: "구로몬 시장", lat: 34.6655, lon: 135.5066, cat: "food", mode: "walk", mins: 10 },
+    { day: 2, name: "오사카성", lat: 34.6873, lon: 135.5262, cat: "sight", mode: "subway", mins: 20, fare: 240 },
+    { day: 2, name: "우메다 스카이빌딩", lat: 34.7053, lon: 135.4898, cat: "sight", mode: "subway", mins: 20, fare: 240 },
+    { day: 2, name: "덴진바시스지 상점가", lat: 34.6990, lon: 135.5115, cat: "food", mode: "subway", mins: 10, fare: 190 },
+    { day: 2, name: "난바 숙소", lat: 34.6646, lon: 135.5016, cat: "stay", mode: "subway", mins: 15, fare: 240 },
+    { day: 3, name: "후시미이나리 신사", lat: 34.9671, lon: 135.7727, cat: "sight", mode: "train", mins: 60, fare: 620 },
+    { day: 3, name: "기요미즈데라", lat: 34.9949, lon: 135.7850, cat: "sight", mode: "bus", mins: 30, fare: 230 },
+    { day: 3, name: "니시키 시장", lat: 35.0050, lon: 135.7649, cat: "food", mode: "bus", mins: 20, fare: 230 },
+    { day: 3, name: "교토역 숙소", lat: 34.9858, lon: 135.7588, cat: "stay", mode: "subway", mins: 10, fare: 220 },
+    { day: 4, name: "아라시야마 대나무숲", lat: 35.0170, lon: 135.6713, cat: "sight", mode: "train", mins: 15, fare: 240 },
+    { day: 4, name: "간사이국제공항", lat: 34.4320, lon: 135.2304, cat: "etc", mode: "train", mins: 110, fare: 3600 }
+  ],
+  track: [],
+  currency: "¥"
+};
+const KEY = "route-map-draft-v4";
+let state = load();
+let activeDay = 0;
+
+function normalize(s) {
+  s.points = (s.points || []).map(p => ({ day: 1, name: "", cat: "etc", mode: "walk", ...p }));
+  s.track = s.track || [];
+  if (s.showTrack === undefined) s.showTrack = true;
+  if (!s.currency) s.currency = "¥";
+  if (!BASEMAPS[s.basemap]) s.basemap = "street";
+  return s;
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY)) || JSON.parse(localStorage.getItem("route-map-draft-v3"));
+    const untouchedOldSample = s && s.title === SAMPLE.title && !s.points.some(p => p.fare);
+    if (s && Array.isArray(s.points) && !untouchedOldSample) return normalize(s);
+  } catch (e) {}
+  return normalize(JSON.parse(JSON.stringify(SAMPLE)));
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const cssv = name => `var(${name})`;
+const dayOf = p => Math.max(1, parseInt(p.day, 10) || 1);
+const modeOf = p => MODES[p.mode] ? p.mode : "none";
+const catOf = p => CATS[p.cat] ? p.cat : "etc";
+
+function haversine(a, b) {
+  const R = 6371.0088, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+const validPt = p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180;
+const fmtKm = km => km >= 100 ? km.toFixed(0) : km >= 10 ? km.toFixed(1) : km.toFixed(2);
+const hasNum = v => Number.isFinite(v) && v > 0;
+const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}시간${m % 60 ? ` ${Math.round(m % 60)}분` : ""}` : `${Math.round(m)}분`;
+const fmtFare = v => `${state.currency || "¥"}${Number(v).toLocaleString()}`;
+const legNote = p => [hasNum(p.mins) ? fmtMin(p.mins) : "", hasNum(p.fare) ? fmtFare(p.fare) : ""].filter(Boolean).join(" · ");
+function parseMinutes(v) {
+  const s = String(v).trim();
+  if (!s) return null;
+  const h = s.match(/(\d+(?:\.\d+)?)\s*시간/), m = s.match(/(\d+)\s*분/);
+  if (h || m) return Math.round((h ? parseFloat(h[1]) * 60 : 0) + (m ? parseInt(m[1], 10) : 0));
+  return /^\d+(?:\.\d+)?$/.test(s) ? Math.round(parseFloat(s)) : null;
+}
+function parseFare(v) {
+  const m = String(v).replace(/[,\s]/g, "").match(/^[¥₩$€]?(\d+(?:\.\d+)?)(?:엔|원|円)?$/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function niceKm(target) {
+  const p = Math.pow(10, Math.floor(Math.log10(target)));
+  const n = target / p;
+  return (n >= 5 ? 5 : n >= 2 ? 2 : 1) * p;
+}
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function thin(arr, max) {
+  if (arr.length <= max) return arr;
+  const step = arr.length / max, out = [];
+  for (let i = 0; i < max; i++) out.push(arr[Math.floor(i * step)]);
+  out.push(arr[arr.length - 1]);
+  return out;
+}
+const measureCtx = document.createElement("canvas").getContext("2d");
+function textWidth(s, size) {
+  measureCtx.font = `600 ${size}px "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+  return measureCtx.measureText(s).width;
+}
+
+function dayList() {
+  const s = new Set(state.points.filter(validPt).map(dayOf));
+  state.track.forEach(p => s.add(dayOf(p)));
+  return Array.from(s).sort((a, b) => a - b);
+}
+
+function strokeSeg(parent, d, mode) {
+  const m = MODES[mode];
+  const col = cssv(m.color);
+  el("path", { d, fill: "none", stroke: "var(--paper)", "stroke-width": m.width + 4.5, "stroke-linecap": "round", "stroke-linejoin": "round" }, parent);
+  el("path", { d, fill: "none", stroke: col, "stroke-width": m.width, "stroke-linecap": m.cap || "butt", "stroke-linejoin": "round", ...(m.dash ? { "stroke-dasharray": m.dash } : {}) }, parent);
+  if (m.rail) el("path", { d, fill: "none", stroke: "var(--paper)", "stroke-width": 1.6, "stroke-dasharray": "7 7" }, parent);
+}
+
+function modeBadge(parent, mode, x, y, ang, r, withArrow) {
+  const col = cssv(MODES[mode].color);
+  const ic = MODE_ICONS[mode];
+  const deg = ang * 180 / Math.PI;
+  if (withArrow || !ic) {
+    const off = ic ? r + 8 : 0;
+    el("path", { d: "M-4.5 -4 L3.5 0 L-4.5 4", fill: "none", stroke: col, "stroke-width": 2.4, "stroke-linecap": "round", "stroke-linejoin": "round", transform: `translate(${(x + Math.cos(ang) * off).toFixed(1)} ${(y + Math.sin(ang) * off).toFixed(1)}) rotate(${deg.toFixed(1)})` }, parent);
+  }
+  if (!ic) return;
+  const g = el("g", { transform: `translate(${x.toFixed(1)} ${y.toFixed(1)})` }, parent);
+  el("circle", { r, fill: "var(--paper)", stroke: col, "stroke-width": 2 }, g);
+  const k = ((r * 1.3) / 24).toFixed(3);
+  const orient = ic.rotate ? `rotate(${deg.toFixed(1)}) ` : ic.flip && Math.cos(ang) < 0 ? "scale(-1 1) " : "";
+  el("path", {
+    d: ic.d, fill: ic.fill ? col : "none", stroke: ic.fill ? "none" : col, "stroke-width": 2.1,
+    "stroke-linecap": "round", "stroke-linejoin": "round", transform: `${orient}scale(${k}) translate(-12 -12)`
+  }, g);
+}
+
+function legendSwatch(mode) {
+  const s = el("svg", { width: 46, height: 22, viewBox: "0 0 46 22", "aria-hidden": "true" });
+  strokeSeg(s, "M3 11L43 11", mode);
+  modeBadge(s, mode, 23, 11, 0, 9, false);
+  return s;
+}
+function catMarker(cat, text) {
+  const span = document.createElement("span");
+  span.className = `mk ${cat}`;
+  span.style.setProperty("--c", cssv(CATS[cat].color));
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[cat]}"/></svg>`;
+  if (text !== undefined && text !== "") {
+    const b = document.createElement("b");
+    b.textContent = text;
+    span.appendChild(b);
+  }
+  span.setAttribute("title", CATS[cat].label);
+  return span;
+}
+
+let lmap = null, tileLayer = null, lastFitKey = "", fitting = false, holdView = false;
+let pickIdx = null, addMode = false, ctlAdd = null, ctlLoc = null;
+let geoWatch = null, geoDot = null, geoAcc = null, geoFirst = false;
+let toastTimer = null;
+
+function keepView(fn) {
+  holdView = true;
+  try { fn(); } finally { holdView = false; }
+}
+
+function showToast(text, actLabel, act) {
+  const t = $("mapToast");
+  clearTimeout(toastTimer);
+  t.textContent = text;
+  if (actLabel) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = actLabel;
+    b.addEventListener("click", act);
+    t.appendChild(b);
+  }
+  t.hidden = false;
+}
+function toastBrief(text) {
+  showToast(text);
+  toastTimer = setTimeout(() => { $("mapToast").hidden = true; }, 2800);
+}
+function hideToast() { clearTimeout(toastTimer); $("mapToast").hidden = true; }
+
+const GMODE = { walk: "walking", bus: "transit", subway: "transit", train: "transit", taxi: "driving", none: "transit" };
+function gmapUrl(a, b, mode) {
+  if (!a || !b || !validPt(a) || !validPt(b) || !GMODE[mode]) return "";
+  return `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lon}&destination=${b.lat},${b.lon}&travelmode=${GMODE[mode]}`;
+}
+
+async function geocode(q) {
+  let out = [];
+  try {
+    const u = new URL("https://nominatim.openstreetmap.org/search");
+    u.search = new URLSearchParams({ format: "jsonv2", q, limit: "6", "accept-language": "ko,ja,en" });
+    if (lmap) {
+      const b = lmap.getBounds().pad(1);
+      u.searchParams.set("viewbox", [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => v.toFixed(4)).join(","));
+    }
+    const r = await fetch(u);
+    if (r.ok) out = (await r.json()).map(x => ({ name: x.name || x.display_name.split(",")[0], addr: x.display_name, lat: +x.lat, lon: +x.lon }));
+  } catch (e) {}
+  if (out.length) return out;
+  const c = lmap ? lmap.getCenter() : null;
+  const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6${c ? `&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}` : ""}`);
+  if (!r.ok) throw new Error("search");
+  return (await r.json()).features.map(f => {
+    const pr = f.properties;
+    return { name: pr.name || q, addr: [pr.name, pr.street, pr.district, pr.city, pr.state, pr.country].filter(Boolean).join(", "), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+  });
+}
+
+async function fillNameFromMap(p) {
+  if (p.name) return;
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=ko,ja,en&lat=${p.lat}&lon=${p.lon}`);
+    const j = await r.json();
+    const name = j.name || (j.display_name || "").split(",")[0];
+    if (name && !p.name) { p.name = name; keepView(() => refresh(true)); }
+  } catch (e) {}
+}
+
+function revealRow(i) {
+  const sec = $("secPts");
+  if (sec) sec.open = true;
+  const row = $(`pt-row-${i}`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.add("flash");
+  setTimeout(() => row.classList.remove("flash"), 1600);
+}
+
+function stopPick() {
+  pickIdx = null;
+  addMode = false;
+  if (ctlAdd) ctlAdd.classList.remove("on");
+  hideToast();
+}
+function startPick(i) {
+  if (!lmap) return;
+  addMode = false;
+  if (ctlAdd) ctlAdd.classList.remove("on");
+  pickIdx = i;
+  $("mapBox").scrollIntoView({ behavior: "smooth", block: "center" });
+  showToast(`지도를 눌러 ${i + 1}번 위치를 정하세요`, "취소", stopPick);
+}
+function toggleAdd() {
+  if (addMode) { stopPick(); return; }
+  pickIdx = null;
+  addMode = true;
+  ctlAdd.classList.add("on");
+  showToast("지도를 누르면 그 자리에 새 지점이 추가됩니다", "끝내기", stopPick);
+}
+
+function onMapClick(e) {
+  const lat = +e.latlng.lat.toFixed(6), lon = +e.latlng.lng.toFixed(6);
+  if (pickIdx !== null) {
+    const i = pickIdx, p = state.points[i];
+    stopPick();
+    if (!p) return;
+    p.lat = lat; p.lon = lon;
+    keepView(() => refresh(true));
+    toastBrief(`${i + 1}번 위치를 정했습니다`);
+    fillNameFromMap(p);
+    return;
+  }
+  if (!addMode) return;
+  const pts = state.points;
+  const day = activeDay || (pts.length ? dayOf(pts[pts.length - 1]) : 1);
+  let at = pts.length;
+  if (activeDay) { const last = pts.map(dayOf).lastIndexOf(activeDay); if (last >= 0) at = last + 1; }
+  const prevMode = at > 0 ? modeOf(pts[at - 1]) : "walk";
+  const p = { day, name: "", lat, lon, cat: "sight", mode: prevMode === "none" || prevMode === "plane" ? "walk" : prevMode };
+  const blank = pts.findIndex(q => !validPt(q));
+  if (blank >= 0 && !activeDay) { Object.assign(pts[blank], { lat, lon }); at = blank; }
+  else pts.splice(at, 0, p);
+  keepView(() => refresh(true));
+  showToast(`${at + 1}번 지점을 추가했습니다. 계속 누르면 더 추가됩니다`, "끝내기", stopPick);
+  fillNameFromMap(pts[at]);
+}
+
+function toggleLocate() {
+  if (geoWatch !== null) {
+    navigator.geolocation.clearWatch(geoWatch);
+    geoWatch = null;
+    if (geoDot) { lmap.removeLayer(geoDot); lmap.removeLayer(geoAcc); geoDot = geoAcc = null; }
+    ctlLoc.classList.remove("on");
+    hideToast();
+    return;
+  }
+  if (!navigator.geolocation) { toastBrief("이 브라우저는 위치 기능을 지원하지 않습니다"); return; }
+  ctlLoc.classList.add("on");
+  geoFirst = true;
+  showToast("내 위치를 찾는 중…");
+  geoWatch = navigator.geolocation.watchPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (!geoDot) {
+      geoAcc = L.circle(ll, { radius: pos.coords.accuracy, color: "#1a73e8", weight: 1, fillColor: "#1a73e8", fillOpacity: 0.12, interactive: false }).addTo(lmap);
+      geoDot = L.circleMarker(ll, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#1a73e8", fillOpacity: 1, interactive: false }).addTo(lmap);
+    } else {
+      geoDot.setLatLng(ll);
+      geoAcc.setLatLng(ll).setRadius(pos.coords.accuracy);
+    }
+    if (geoFirst) {
+      geoFirst = false;
+      lmap.setView(ll, Math.max(lmap.getZoom(), 15), { animate: false });
+      toastBrief("파란 점이 내 위치입니다");
+    }
+  }, err => {
+    const wasOn = geoWatch !== null;
+    if (wasOn) toggleLocate();
+    toastBrief(err.code === 1
+      ? "위치 권한이 꺼져 있습니다. 브라우저 설정에서 이 사이트의 위치 접근을 허용해 주세요"
+      : "내 위치를 찾지 못했습니다. 잠시 뒤 다시 눌러 주세요");
+  }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+}
+
+function initMarkerDrag() {
+  const svg = $("map");
+  let drag = null;
+  svg.addEventListener("pointerdown", e => {
+    const g = e.target.closest && e.target.closest("[data-pt]");
+    if (!g || pickIdx !== null || addMode) return;
+    e.preventDefault();
+    const touch = e.pointerType === "touch";
+    drag = { i: +g.dataset.pt, x: e.clientX, y: e.clientY, moved: false, armed: !touch, wasDrag: lmap.dragging.enabled() };
+    lmap.dragging.disable();
+    if (touch) {
+      const cur = drag;
+      cur.timer = setTimeout(() => {
+        if (drag !== cur) return;
+        cur.armed = true;
+        if (navigator.vibrate) navigator.vibrate(15);
+        toastBrief("손을 떼지 말고 끌어서 위치를 옮기세요");
+      }, 400);
+    }
+  });
+  window.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const far = Math.hypot(e.clientX - drag.x, e.clientY - drag.y) >= 6;
+    if (!drag.armed) {
+      if (far) { clearTimeout(drag.timer); drag.cancelled = true; }
+      return;
+    }
+    if (!drag.moved && !far) return;
+    drag.moved = true;
+    const r = $("mapBox").getBoundingClientRect();
+    const ll = lmap.containerPointToLatLng([e.clientX - r.left, e.clientY - r.top]);
+    const p = state.points[drag.i];
+    if (!p) return;
+    p.lat = +ll.lat.toFixed(6);
+    p.lon = +ll.lng.toFixed(6);
+    keepView(() => drawMap());
+  });
+  const end = () => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    clearTimeout(d.timer);
+    if (d.wasDrag) lmap.dragging.enable();
+    if (d.moved) {
+      keepView(() => refresh(true));
+      toastBrief(`${d.i + 1}번 위치를 옮겼습니다`);
+    } else if (!d.cancelled) {
+      const p = state.points[d.i];
+      if (!p) return;
+      showToast(`${d.i + 1}. ${p.name || "이름 없는 지점"}`, "편집", () => { hideToast(); revealRow(d.i); });
+      toastTimer = setTimeout(hideToast, 4000);
+    }
+  };
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+let screenVH = window.innerHeight || 700;
+function mapDims(cw, screen) {
+  const mobile = cw < 640;
+  const H = !mobile ? cw * 0.66 : screen ? Math.max(cw * 1.2, Math.min(screenVH * 0.72, cw * 1.9)) : cw * 1.2;
+  return { mobile, W: cw, H: Math.round(H), PAD: mobile ? 42 : 80, FS: mobile ? 12.5 : 14.5, R: mobile ? 13 : 15, bottom: mobile ? 34 : 40 };
+}
+const mercX = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
+const mercY = (lat, z) => {
+  const s = Math.sin(Math.max(-85, Math.min(85, lat)) * Math.PI / 180);
+  return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z;
+};
+const metersPerPx = (lat, z) => 156543.03392 * Math.cos(lat * Math.PI / 180) / 2 ** z;
+
+function getFocus(day) {
+  const pts = state.points.filter(validPt);
+  const track = state.showTrack ? state.track : [];
+  const all = pts.concat(track);
+  if (!day) return all;
+  const idx = pts.map((p, i) => dayOf(p) === day ? i : -1).filter(i => i >= 0);
+  let focus = idx.map(i => pts[i]);
+  if (idx.length && idx[0] > 0) focus.unshift(pts[idx[0] - 1]);
+  focus = focus.concat(track.filter(p => dayOf(p) === day));
+  return focus.length >= 2 ? focus : all;
+}
+
+function fitView(focus, d) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, latSum = 0;
+  focus.forEach(p => {
+    const x = mercX(p.lon, 0), y = mercY(p.lat, 0);
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    latSum += p.lat;
+  });
+  const spanX = Math.max(maxX - minX, 1e-9), spanY = Math.max(maxY - minY, 1e-9);
+  const z = Math.min(17, Math.log2(Math.min((d.W - d.PAD * 2) / spanX, (d.H - d.PAD * 2 - d.bottom) / spanY)));
+  const f = 2 ** z, cx = (minX + maxX) / 2 * f, cy = (minY + maxY) / 2 * f;
+  const ox = d.W / 2, oy = (d.H - d.bottom) / 2;
+  return { z, cx, cy, ox, oy, px: p => [ox + mercX(p.lon, z) - cx, oy + mercY(p.lat, z) - cy], pxPerKm: 1000 / metersPerPx(latSum / focus.length, z) };
+}
+
+function leafletView(d) {
+  const size = lmap.getSize();
+  if (size.x !== d.W || size.y !== d.H) { fitting = true; lmap.invalidateSize(false); fitting = false; }
+  const focus = getFocus(activeDay);
+  let a = Infinity, b = -Infinity, c = Infinity, e = -Infinity;
+  focus.forEach(p => { a = Math.min(a, p.lat); b = Math.max(b, p.lat); c = Math.min(c, p.lon); e = Math.max(e, p.lon); });
+  const key = `${activeDay}|${d.W}x${d.H}|${focus.length}|${[a, b, c, e].map(v => v.toFixed(5)).join(",")}`;
+  if (key !== lastFitKey && focus.length) {
+    const hold = holdView;
+    lastFitKey = key;
+    if (hold) return leafletProj();
+    fitting = true;
+    lmap.fitBounds([[a, c], [b, e]], { paddingTopLeft: [d.PAD, d.PAD], paddingBottomRight: [d.PAD, d.PAD + d.bottom], animate: false, maxZoom: 17 });
+    fitting = false;
+  }
+  return leafletProj();
+}
+
+function leafletProj() {
+  return {
+    px: p => { const q = lmap.latLngToContainerPoint([p.lat, p.lon]); return [q.x, q.y]; },
+    pxPerKm: 1000 / metersPerPx(lmap.getCenter().lat, lmap.getZoom())
+  };
+}
+
+function setBasemap() {
+  if (!lmap) return;
+  if (tileLayer) { lmap.removeLayer(tileLayer); tileLayer = null; }
+  const b = BASEMAPS[state.basemap];
+  if (b && b.url) tileLayer = L.tileLayer(b.url, { maxZoom: b.maxZoom, crossOrigin: true, attribution: b.attr }).addTo(lmap);
+}
+
+function initLeaflet() {
+  if (!window.L) return;
+  const coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  $("mapBox").style.height = mapDims(Math.max(300, $("mapBox").clientWidth || 360), true).H + "px";
+  lmap = L.map("lmap", { zoomSnap: 0.25, zoomDelta: 0.5, zoomAnimation: false, markerZoomAnimation: false, dragging: !coarse, maxZoom: 19 });
+  lmap.attributionControl.setPrefix(false);
+  lmap.setView([35, 135], 5);
+  setBasemap();
+  lmap.on("move zoom resize", () => { if (!fitting) drawMap(); });
+  const Ctl = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const box = L.DomUtil.create("div", "leaflet-bar map-ctl");
+      const fit = L.DomUtil.create("a", "", box);
+      fit.href = "#"; fit.setAttribute("role", "button"); fit.textContent = "동선 맞춤";
+      L.DomEvent.on(fit, "click", ev => { L.DomEvent.preventDefault(ev); lastFitKey = ""; drawMap(); });
+      if (coarse) {
+        const mv = L.DomUtil.create("a", "", box);
+        mv.href = "#"; mv.setAttribute("role", "button"); mv.textContent = "지도 이동";
+        L.DomEvent.on(mv, "click", ev => {
+          L.DomEvent.preventDefault(ev);
+          const on = !lmap.dragging.enabled();
+          if (on) lmap.dragging.enable(); else lmap.dragging.disable();
+          mv.classList.toggle("on", on);
+          mv.textContent = on ? "이동 끄기" : "지도 이동";
+        });
+      }
+      ctlAdd = L.DomUtil.create("a", "", box);
+      ctlAdd.href = "#"; ctlAdd.setAttribute("role", "button"); ctlAdd.textContent = "지점 추가";
+      L.DomEvent.on(ctlAdd, "click", ev => { L.DomEvent.preventDefault(ev); toggleAdd(); });
+      ctlLoc = L.DomUtil.create("a", "", box);
+      ctlLoc.href = "#"; ctlLoc.setAttribute("role", "button"); ctlLoc.textContent = "내 위치";
+      L.DomEvent.on(ctlLoc, "click", ev => { L.DomEvent.preventDefault(ev); toggleLocate(); });
+      L.DomEvent.disableClickPropagation(box);
+      return box;
+    }
+  });
+  new Ctl().addTo(lmap);
+  lmap.on("click", onMapClick);
+  initMarkerDrag();
+}
+
+function drawMap(target, forceW, view) {
+  const box = $("mapBox");
+  const svg = target || $("map");
+  const D = mapDims(forceW || Math.max(300, Math.round(box.clientWidth || 360)), !target);
+  if (view && view.H) D.H = view.H;
+  const { mobile, W, H, PAD, FS, R, bottom } = D;
+  if (!target) box.style.height = H + "px";
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+
+  const pts = state.points.filter(validPt);
+  const track = state.showTrack ? state.track : [];
+  const all = pts.concat(track);
+  if (!target) $("mapEmpty").hidden = all.length >= 2;
+  const paper = !(BASEMAPS[state.basemap] || {}).url || (!target && !lmap);
+  if (paper) {
+    el("rect", { x: 0, y: 0, width: W, height: H, fill: "var(--paper)" }, svg);
+    const gstep = mobile ? 44 : 60;
+    const grid = el("g", { stroke: "var(--paper-grid)", "stroke-width": 1 }, svg);
+    for (let x = gstep / 2; x < W; x += gstep) el("line", { x1: x, y1: 0, x2: x, y2: H }, grid);
+    for (let y = gstep / 2; y < H; y += gstep) el("line", { x1: 0, y1: y, x2: W, y2: y }, grid);
+  }
+  if (all.length < 2) return;
+
+  if (!view) view = !target && lmap ? leafletView(D) : fitView(getFocus(activeDay), D);
+  const px = view.px;
+  const f1 = v => v.toFixed(1);
+
+  const pxPerKm = view.pxPerKm;
+  const barKm = niceKm((W * 0.22) / pxPerKm);
+  const barPx = barKm * pxPerKm;
+  const sb = el("g", { transform: `translate(${mobile ? 16 : 36} ${H - (mobile ? 18 : 30)})`, "font-family": "IBM Plex Mono, monospace", "font-size": 11, fill: "var(--paper-muted)" }, svg);
+  if (!paper) el("rect", { x: -6, y: -24, width: Math.max(barPx, 44) + 12, height: 30, rx: 4, fill: "var(--paper)", opacity: 0.85 }, sb);
+  el("rect", { x: 0, y: -4, width: barPx / 2, height: 4, fill: "var(--paper-ink)" }, sb);
+  el("rect", { x: barPx / 2, y: -4, width: barPx / 2, height: 4, fill: "var(--paper)", stroke: "var(--paper-ink)", "stroke-width": 1 }, sb);
+  if (barPx >= 56) el("text", { x: 0, y: -10 }, sb).textContent = "0";
+  el("text", { x: barPx >= 56 ? barPx : 0, y: -10, "text-anchor": barPx >= 56 ? "end" : "start" }, sb).textContent = barKm >= 1 ? `${barKm} km` : `${Math.round(barKm * 1000)} m`;
+
+  const na = el("g", { transform: `translate(${W - (mobile ? 26 : 44)} ${mobile ? 34 : 48})` }, svg);
+  if (!paper) el("circle", { cx: 0, cy: 2, r: 20, fill: "var(--paper)", opacity: 0.85 }, na);
+  el("path", { d: "M0 -18 L7 5 L0 0 L-7 5 Z", fill: "var(--paper-ink)" }, na);
+  el("text", { x: 0, y: 20, "text-anchor": "middle", "font-family": "IBM Plex Mono, monospace", "font-size": 12, "font-weight": 500, fill: "var(--paper-ink)" }, na).textContent = "N";
+
+  const dimOf = d => activeDay && d !== activeDay ? 0.15 : 1;
+  const hasTrack = track.length >= 2;
+  const legInfos = [];
+
+  if (hasTrack) {
+    const t = thin(track, 4000);
+    const runs = [];
+    t.forEach((p, i) => {
+      const d = dayOf(p);
+      if (!runs.length || runs[runs.length - 1].d !== d) runs.push({ d, pts: i ? [t[i - 1]] : [] });
+      runs[runs.length - 1].pts.push(p);
+    });
+    runs.sort((a, b) => (a.d === activeDay) - (b.d === activeDay));
+    runs.forEach(r => {
+      if (r.pts.length < 2) return;
+      const d = r.pts.map((p, i) => (i ? "L" : "M") + px(p).map(f1).join(" ")).join("");
+      const g = el("g", { opacity: dimOf(r.d) }, svg);
+      el("path", { d, fill: "none", stroke: "var(--paper)", "stroke-width": 7, "stroke-linejoin": "round", "stroke-linecap": "round" }, g);
+      el("path", { d, fill: "none", stroke: "var(--track)", "stroke-width": 3, "stroke-linejoin": "round", "stroke-linecap": "round" }, g);
+    });
+  }
+
+  if (pts.length >= 2) {
+    const segs = [];
+    for (let i = 1; i < pts.length; i++) segs.push({ a: pts[i - 1], b: pts[i], p: pts[i], d: dayOf(pts[i]), mode: modeOf(pts[i]) });
+    segs.sort((x, y) => (x.d === activeDay) - (y.d === activeDay));
+    segs.forEach(s => {
+      const [x1, y1] = px(s.a), [x2, y2] = px(s.b);
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      if (len < 0.5) return;
+      const g = el("g", { opacity: dimOf(s.d) * (hasTrack ? 0.55 : 1) }, svg);
+      let d, mx = (x1 + x2) / 2, my = (y1 + y2) / 2, ang = Math.atan2(y2 - y1, x2 - x1);
+      if (MODES[s.mode].arc) {
+        const k = len * 0.18, nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
+        const cx = mx + nx * k, cy = my + ny * k;
+        d = `M${f1(x1)} ${f1(y1)}Q${f1(cx)} ${f1(cy)} ${f1(x2)} ${f1(y2)}`;
+        mx = (x1 + 2 * cx + x2) / 4; my = (y1 + 2 * cy + y2) / 4;
+      } else {
+        d = `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`;
+      }
+      strokeSeg(g, d, s.mode);
+      const MR = mobile ? 10 : 11.5;
+      const badge = len > R * 4;
+      if (badge) modeBadge(g, s.mode, mx, my, ang, MR, len > R * 7);
+      if (!activeDay || s.d === activeDay) legInfos.push({ x: mx, y: my, ang, mode: s.mode, r: badge ? MR : 0, text: legNote(s.p) });
+    });
+  }
+
+  const nodes = pts.map((p, i) => { const [x, y] = px(p); return { i, p, x0: x, y0: y, x, y, d: dayOf(p) }; });
+  const vis = activeDay ? nodes.filter(n => n.d === activeDay) : nodes;
+  const minD = R * 2 + 3;
+  for (let it = 0; it < 80; it++) {
+    let moved = false;
+    for (let a = 0; a < vis.length; a++) for (let b = a + 1; b < vis.length; b++) {
+      const A = vis[a], B = vis[b];
+      let dx = B.x - A.x, dy = B.y - A.y, dist = Math.hypot(dx, dy);
+      if (dist >= minD) continue;
+      if (dist < 0.01) { const t = (B.i * 2.399) % (Math.PI * 2); dx = Math.cos(t); dy = Math.sin(t); dist = 1; }
+      const push = (minD - dist) / 2 + 0.2;
+      A.x -= dx / dist * push; A.y -= dy / dist * push;
+      B.x += dx / dist * push; B.y += dy / dist * push;
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  vis.forEach(n => { n.x = Math.min(W - R - 2, Math.max(R + 2, n.x)); n.y = Math.min(H - R - 2, Math.max(R + 2, n.y)); });
+
+  const leaders = el("g", {}, svg);
+  vis.forEach(n => {
+    if (Math.hypot(n.x - n.x0, n.y - n.y0) > R * 0.6) {
+      el("line", { x1: f1(n.x0), y1: f1(n.y0), x2: f1(n.x), y2: f1(n.y), stroke: "var(--paper-ink)", "stroke-width": 1, opacity: 0.55 }, leaders);
+      el("circle", { cx: f1(n.x0), cy: f1(n.y0), r: 2.2, fill: "var(--paper-ink)" }, leaders);
+    }
+  });
+
+  const drawMarker = (n, parent, op) => {
+    const cat = catOf(n.p), col = cssv(CATS[cat].color);
+    const g = el("g", { transform: `translate(${f1(n.x)} ${f1(n.y)})`, opacity: op }, parent);
+    if (!target && lmap && op === 1) g.setAttribute("data-pt", state.points.indexOf(n.p));
+    if (cat === "stay") el("rect", { x: -R, y: -R, width: R * 2, height: R * 2, rx: 5, fill: col, stroke: "var(--paper)", "stroke-width": 2.5 }, g);
+    else if (cat === "etc") el("circle", { r: R, fill: "var(--paper)", stroke: "var(--paper-ink)", "stroke-width": 2 }, g);
+    else el("circle", { r: R, fill: col, stroke: "var(--paper)", "stroke-width": 2.5 }, g);
+    const k = (R * 1.25) / 24;
+    el("path", { d: ICONS[cat], fill: "none", stroke: cat === "etc" ? "var(--paper-ink)" : "#ffffff", "stroke-width": 2.2, "stroke-linecap": "round", "stroke-linejoin": "round", transform: `scale(${k.toFixed(3)}) translate(-12 -12)` }, g);
+    const no = String(n.i + 1);
+    const bw = Math.max(15, no.length * 6.5 + 6), bx = R * 0.8, by = -R * 0.8;
+    el("rect", { x: f1(bx - bw / 2), y: f1(by - 7.5), width: bw, height: 15, rx: 7.5, fill: "var(--paper)", stroke: "var(--paper-ink)", "stroke-width": 1 }, g);
+    el("text", { x: f1(bx), y: f1(by + 3.4), "text-anchor": "middle", "font-family": "IBM Plex Mono, monospace", "font-size": 9.5, "font-weight": 600, fill: "var(--paper-ink)" }, g).textContent = no;
+  };
+  if (activeDay) {
+    const dimG = el("g", {}, svg);
+    nodes.filter(n => n.d !== activeDay).forEach(n => drawMarker(n, dimG, 0.18));
+  }
+  const markG = el("g", {}, svg);
+  vis.forEach(n => drawMarker(n, markG, 1));
+
+  const boxes = vis.map(n => ({ x1: n.x - R, y1: n.y - R * 1.4, x2: n.x + R * 1.5, y2: n.y + R, own: n.i }));
+  legInfos.forEach(l => { if (l.r) boxes.push({ x1: l.x - l.r, y1: l.y - l.r, x2: l.x + l.r, y2: l.y + l.r, own: -3 }); });
+  const overlaps = (b, own) => boxes.some(o => o.own !== own && b.x1 < o.x2 && b.x2 > o.x1 && b.y1 < o.y2 && b.y2 > o.y1);
+  const labelG = el("g", {}, svg);
+  const labeledNames = [];
+  vis.forEach(n => {
+    const name = n.p.name || `지점 ${n.i + 1}`;
+    if (labeledNames.some(l => l.name === name && Math.hypot(l.x - n.x, l.y - n.y) < R * 6)) return;
+    const w = textWidth(name, FS), h = FS + 2, gap = R + 5;
+    const preferRight = n.x < W / 2;
+    const cands = [
+      { side: preferRight ? "r" : "l" }, { side: preferRight ? "l" : "r" }, { side: "t" }, { side: "b" }
+    ].map(c => {
+      if (c.side === "r") return { ...c, x1: n.x + gap, y1: n.y - h / 2 };
+      if (c.side === "l") return { ...c, x1: n.x - gap - w, y1: n.y - h / 2 };
+      if (c.side === "t") return { ...c, x1: n.x - w / 2, y1: n.y - gap - h };
+      return { ...c, x1: n.x - w / 2, y1: n.y + gap };
+    }).map(c => ({ ...c, x2: c.x1 + w, y2: c.y1 + h }));
+    const ok = cands.find(c => c.x1 >= 4 && c.x2 <= W - 4 && c.y1 >= 4 && c.y2 <= H - bottom && !overlaps(c, -1));
+    if (!ok) return;
+    boxes.push({ x1: ok.x1 - 2, y1: ok.y1, x2: ok.x2 + 2, y2: ok.y2, own: -2 });
+    labeledNames.push({ name, x: n.x, y: n.y });
+    el("text", {
+      x: f1(ok.x1), y: f1(ok.y1 + h * 0.78),
+      "font-family": "IBM Plex Sans KR, sans-serif", "font-size": FS, "font-weight": 600,
+      fill: "var(--paper-ink)", stroke: "var(--paper)", "stroke-width": 4.5, "paint-order": "stroke", "stroke-linejoin": "round"
+    }, labelG).textContent = name;
+  });
+
+  const LFS = FS - 2;
+  legInfos.forEach(l => {
+    if (!l.text) return;
+    const w = textWidth(l.text, LFS) + 12, h = LFS + 7;
+    const nx = -Math.sin(l.ang), ny = Math.cos(l.ang);
+    const base = (l.r || 3) + 4;
+    const cands = [1, -1].map(sg => {
+      const off = base + Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2;
+      return { x1: l.x + nx * off * sg - w / 2, y1: l.y + ny * off * sg - h / 2 };
+    });
+    cands.push({ x1: l.x - w / 2, y1: l.y + base }, { x1: l.x - w / 2, y1: l.y - base - h });
+    const ok = cands.map(c => ({ ...c, x2: c.x1 + w, y2: c.y1 + h }))
+      .find(c => c.x1 >= 4 && c.x2 <= W - 4 && c.y1 >= 4 && c.y2 <= H - bottom && !overlaps(c, -1));
+    if (!ok) return;
+    boxes.push({ ...ok, own: -4 });
+    el("rect", { x: f1(ok.x1), y: f1(ok.y1), width: f1(w), height: h, rx: h / 2, fill: "var(--paper)", stroke: cssv(MODES[l.mode].color), "stroke-width": 1.2 }, labelG);
+    el("text", { x: f1(ok.x1 + w / 2), y: f1(ok.y1 + h / 2 + LFS * 0.36), "text-anchor": "middle", "font-family": "IBM Plex Sans KR, sans-serif", "font-size": LFS, "font-weight": 600, fill: "var(--paper-ink)" }, labelG).textContent = l.text;
+  });
+}
+
+function drawChips() {
+  const days = dayList();
+  if (activeDay && !days.includes(activeDay)) activeDay = 0;
+  const nav = $("chips");
+  nav.innerHTML = "";
+  nav.hidden = days.length < 2;
+  const mk = (label, d) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.setAttribute("aria-pressed", String(activeDay === d));
+    b.textContent = label;
+    b.addEventListener("click", () => { activeDay = d; drawChips(); drawMap(); });
+    nav.appendChild(b);
+  };
+  mk("전체", 0);
+  days.forEach(d => mk(`${d}일차`, d));
+}
+
+function drawSummary() {
+  $("capTitle").textContent = state.title || "여행 제목";
+  $("capSub").textContent = state.sub || "";
+  $("capDate").textContent = state.date || "";
+  const pts = state.points.filter(validPt);
+  const useTrack = state.showTrack && state.track.length >= 2;
+  const dayMap = new Map();
+  dayList().forEach(d => dayMap.set(d, { km: 0, mins: 0, fare: 0, stops: [] }));
+  const modeKm = {};
+  pts.forEach((p, i) => {
+    const d = dayOf(p);
+    const leg = i > 0 ? haversine(pts[i - 1], p) : 0;
+    dayMap.get(d).stops.push({ p, no: i + 1, mode: i > 0 ? modeOf(p) : null });
+    if (i > 0) {
+      modeKm[modeOf(p)] = (modeKm[modeOf(p)] || 0) + leg;
+      if (!useTrack) dayMap.get(d).km += leg;
+      if (hasNum(p.mins)) dayMap.get(d).mins += p.mins;
+      if (hasNum(p.fare)) dayMap.get(d).fare += p.fare;
+    }
+  });
+  if (useTrack) {
+    for (let i = 1; i < state.track.length; i++) {
+      const d = dayOf(state.track[i]);
+      if (dayMap.has(d)) dayMap.get(d).km += haversine(state.track[i - 1], state.track[i]);
+    }
+  }
+  let total = 0;
+  dayMap.forEach(v => total += v.km);
+  $("stDist").innerHTML = `${fmtKm(total)}<small>km</small>`;
+  $("stDays").innerHTML = `${dayMap.size}<small>일</small>`;
+  $("stCount").innerHTML = `${pts.length}<small>곳</small>`;
+  $("infoSum").textContent = state.title || "";
+  $("ptsSum").textContent = `${dayMap.size}일 · ${pts.length}곳`;
+  let totalMin = 0, totalFare = 0;
+  dayMap.forEach(v => { totalMin += v.mins; totalFare += v.fare; });
+  const hh = Math.floor(totalMin / 60), mm = Math.round(totalMin % 60);
+  $("stTime").innerHTML = totalMin ? `${hh ? `${hh}<small>시간</small> ` : ""}${mm || !hh ? `${mm}<small>분</small>` : ""}` : "—";
+  $("stFare").textContent = totalFare ? fmtFare(totalFare) : "—";
+
+  const lgMode = $("lgMode");
+  lgMode.innerHTML = "";
+  if (useTrack) {
+    const it = document.createElement("span");
+    it.className = "lg-item";
+    const s = el("svg", { width: 30, height: 12, viewBox: "0 0 30 12", "aria-hidden": "true" });
+    el("path", { d: "M3 6L27 6", stroke: "var(--track)", "stroke-width": 3, "stroke-linecap": "round", fill: "none" }, s);
+    it.append(s, "GPX 궤적");
+    lgMode.appendChild(it);
+  }
+  Object.keys(MODES).filter(m => modeKm[m] !== undefined).forEach(m => {
+    const it = document.createElement("span");
+    it.className = "lg-item";
+    const small = document.createElement("small");
+    small.textContent = `${fmtKm(modeKm[m])} km`;
+    it.append(legendSwatch(m), MODES[m].label, small);
+    lgMode.appendChild(it);
+  });
+  if (!lgMode.childNodes.length) lgMode.textContent = "—";
+
+  const lgCat = $("lgCat");
+  lgCat.innerHTML = "";
+  const catCount = {};
+  pts.forEach(p => catCount[catOf(p)] = (catCount[catOf(p)] || 0) + 1);
+  Object.keys(CATS).filter(c => catCount[c]).forEach(c => {
+    const it = document.createElement("span");
+    it.className = "lg-item";
+    const small = document.createElement("small");
+    small.textContent = `${catCount[c]}곳`;
+    it.append(catMarker(c, ""), CATS[c].label, small);
+    lgCat.appendChild(it);
+  });
+  if (!lgCat.childNodes.length) lgCat.textContent = "—";
+
+  const box = $("days");
+  box.innerHTML = "";
+  dayMap.forEach((v, d) => {
+    const div = document.createElement("div");
+    div.className = "day";
+    div.innerHTML = `<div class="day-h"><b>${d}일차</b><span>${fmtKm(v.km)} km${useTrack ? "" : " 직선"}${v.mins ? ` · ${fmtMin(v.mins)}` : ""}${v.fare ? ` · ${fmtFare(v.fare)}` : ""}</span></div>`;
+    const ol = document.createElement("ol");
+    v.stops.forEach(s => {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = s.p.name || `지점 ${s.no}`;
+      const via = document.createElement("span");
+      via.className = "via";
+      via.textContent = s.mode ? [s.mode === "none" ? "" : `${MODES[s.mode].label}로`, legNote(s.p)].filter(Boolean).join(" · ") : "출발";
+      const url = s.mode ? gmapUrl(pts[s.no - 2], s.p, s.mode) : "";
+      if (url) {
+        const a = document.createElement("a");
+        a.href = url; a.target = "_blank"; a.rel = "noopener";
+        a.textContent = "길찾기";
+        via.appendChild(a);
+      }
+      li.append(catMarker(catOf(s.p), s.no), name, via);
+      ol.appendChild(li);
+    });
+    div.appendChild(ol);
+    box.appendChild(div);
+  });
+}
+
+function legText(i) {
+  const p = state.points[i], prev = state.points[i - 1];
+  if (!validPt(p) || !validPt(prev)) return "좌표 입력 전";
+  return `직선 ${fmtKm(haversine(prev, p))} km`;
+}
+
+function updateLegs() {
+  document.querySelectorAll("#pts .leg-km").forEach(s => { s.textContent = legText(+s.dataset.i); });
+  document.querySelectorAll("#pts a.gmap").forEach(a => {
+    const i = +a.dataset.i;
+    const url = gmapUrl(state.points[i - 1], state.points[i], modeOf(state.points[i]));
+    a.hidden = !url;
+    if (url) a.href = url;
+  });
+}
+
+function options(map, selected) {
+  return Object.keys(map).map(k => `<option value="${k}" ${k === selected ? "selected" : ""}>${map[k].label}</option>`).join("");
+}
+
+function drawList() {
+  const box = $("pts");
+  box.innerHTML = "";
+  const n = state.points.length;
+  const maxDay = Math.max(1, ...state.points.map(dayOf)) + 1;
+  state.points.forEach((p, i) => {
+    const d = dayOf(p);
+    if (i === 0 || dayOf(state.points[i - 1]) !== d) {
+      const sep = document.createElement("div");
+      sep.className = "day-sep";
+      sep.textContent = `${d}일차`;
+      box.appendChild(sep);
+    }
+    if (i > 0) {
+      const leg = document.createElement("div");
+      leg.className = "leg";
+      leg.innerHTML = `<span class="leg-line"></span>
+        <div class="leg-body">
+          <div class="leg-top"><select id="pm${i}" aria-label="${i}번에서 ${i + 1}번으로 가는 이동수단">${options(MODES, modeOf(p))}</select><span class="leg-km" data-i="${i}"></span><a class="gmap" data-i="${i}" target="_blank" rel="noopener">구글 길찾기</a></div>
+          <div class="leg-in">
+            <input type="text" inputmode="numeric" id="lt${i}" aria-label="${i}번에서 ${i + 1}번까지 걸린 시간" placeholder="시간 (분)">
+            <input type="text" inputmode="decimal" id="lf${i}" aria-label="${i}번에서 ${i + 1}번까지 요금" placeholder="요금 (${state.currency})">
+          </div>
+        </div>`;
+      leg.querySelector("select").before(legendSwatch(modeOf(p)));
+      leg.querySelector(".leg-km").textContent = legText(i);
+      leg.querySelector("select").addEventListener("change", e => { p.mode = e.target.value; refresh(true); });
+      const tIn = leg.querySelector(`#lt${i}`), fIn = leg.querySelector(`#lf${i}`);
+      tIn.value = hasNum(p.mins) ? p.mins : "";
+      fIn.value = hasNum(p.fare) ? p.fare : "";
+      tIn.addEventListener("input", () => { p.mins = parseMinutes(tIn.value); refresh(false); });
+      fIn.addEventListener("input", () => { p.fare = parseFare(fIn.value); refresh(false); });
+      box.appendChild(leg);
+    }
+    const row = document.createElement("div");
+    row.className = "pt";
+    row.id = `pt-row-${i}`;
+    let dayOpts = "";
+    for (let k = 1; k <= Math.max(maxDay, d); k++) dayOpts += `<option value="${k}" ${k === d ? "selected" : ""}>${k}일차</option>`;
+    row.innerHTML = `
+      <div class="mk-slot"></div>
+      <div class="pt-fields">
+        <div class="pt-name">
+          <input type="text" id="pn${i}" aria-label="${i + 1}번 지점 이름" placeholder="장소 이름 (일본어·영어로 검색이 잘 됩니다)">
+          <button class="btn sm" type="button" id="ps${i}">검색</button>
+        </div>
+        <div class="pt-results" id="pr${i}"></div>
+        <div class="pt-2">
+          <select id="pd${i}" aria-label="일차">${dayOpts}</select>
+          <select id="pc${i}" aria-label="장소 분류">${options(CATS, catOf(p))}</select>
+        </div>
+        <div class="pt-coords">
+          <input type="text" inputmode="decimal" id="pa${i}" aria-label="위도" placeholder="위도">
+          <input type="text" inputmode="decimal" id="po${i}" aria-label="경도" placeholder="경도">
+        </div>
+        <div class="pt-tools">
+          <button class="btn sm" type="button" id="pk${i}">지도에서 찍기</button>
+        </div>
+      </div>
+      <div class="pt-ctl">
+        <button class="icon-btn" type="button" data-act="up" aria-label="위로" ${i === 0 ? "disabled" : ""}>▲</button>
+        <button class="icon-btn" type="button" data-act="down" aria-label="아래로" ${i === n - 1 ? "disabled" : ""}>▼</button>
+        <button class="icon-btn del" type="button" data-act="del" aria-label="삭제">✕</button>
+      </div>`;
+    row.querySelector(".mk-slot").replaceWith(catMarker(catOf(p), i + 1));
+    const nameIn = row.querySelector(`#pn${i}`), latIn = row.querySelector(`#pa${i}`), lonIn = row.querySelector(`#po${i}`);
+    nameIn.value = p.name || "";
+    latIn.value = Number.isFinite(p.lat) ? p.lat : "";
+    lonIn.value = Number.isFinite(p.lon) ? p.lon : "";
+    nameIn.addEventListener("input", () => { p.name = nameIn.value; refresh(false); });
+    row.querySelector(`#pd${i}`).addEventListener("change", e => { p.day = +e.target.value; refresh(true); });
+    row.querySelector(`#pc${i}`).addEventListener("change", e => { p.cat = e.target.value; refresh(true); });
+    const num = v => { const t = v.trim(); return t === "" ? NaN : parseFloat(t); };
+    const onCoord = () => {
+      p.lat = num(latIn.value);
+      p.lon = num(lonIn.value);
+      refresh(false);
+      updateLegs();
+    };
+    const resBox = row.querySelector(`#pr${i}`);
+    const resMsg = (text, err) => {
+      resBox.innerHTML = "";
+      const m = document.createElement("div");
+      m.className = err ? "msg err" : "msg";
+      m.textContent = text;
+      resBox.appendChild(m);
+    };
+    const doSearch = async () => {
+      const q = nameIn.value.trim();
+      if (!q) { resMsg("장소 이름을 먼저 적어 주세요.", true); return; }
+      resMsg("찾는 중…");
+      try {
+        const list = await geocode(q);
+        if (!list.length) { resMsg("검색 결과가 없습니다. 일본어·영어 이름으로 다시 찾거나, 아래 좌표 칸에 직접 넣거나, [지도에서 찍기]를 써 주세요.", true); return; }
+        resBox.innerHTML = "";
+        list.forEach(r => {
+          const b = document.createElement("button");
+          b.type = "button";
+          const t = document.createElement("span");
+          t.textContent = r.name;
+          const s = document.createElement("small");
+          s.textContent = r.addr;
+          b.append(t, s);
+          b.addEventListener("click", () => {
+            p.lat = +r.lat.toFixed(6);
+            p.lon = +r.lon.toFixed(6);
+            if (!p.name.trim()) p.name = r.name;
+            refresh(true);
+            revealRow(i);
+          });
+          resBox.appendChild(b);
+        });
+        const close = document.createElement("button");
+        close.type = "button";
+        close.textContent = "닫기";
+        close.addEventListener("click", () => { resBox.innerHTML = ""; });
+        resBox.appendChild(close);
+      } catch (e) {
+        resMsg("검색 서버에 연결하지 못했습니다. 잠시 뒤 다시 시도하거나 좌표를 직접 넣어 주세요.", true);
+      }
+    };
+    row.querySelector(`#ps${i}`).addEventListener("click", doSearch);
+    nameIn.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); doSearch(); } });
+    row.querySelector(`#pk${i}`).addEventListener("click", () => startPick(i));
+    const splitPaste = e => {
+      const txt = (e.clipboardData || window.clipboardData).getData("text");
+      const m = txt.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+      if (m) { e.preventDefault(); latIn.value = m[1]; lonIn.value = m[2]; onCoord(); }
+    };
+    latIn.addEventListener("input", onCoord);
+    lonIn.addEventListener("input", onCoord);
+    latIn.addEventListener("paste", splitPaste);
+    lonIn.addEventListener("paste", splitPaste);
+    row.querySelector(".pt-ctl").addEventListener("click", e => {
+      const act = e.target.closest("button")?.dataset.act;
+      if (!act) return;
+      const a = state.points;
+      if (act === "up" && i > 0) { [a[i - 1], a[i]] = [a[i], a[i - 1]]; a[i - 1].day = a[i].day; }
+      if (act === "down" && i < a.length - 1) { [a[i + 1], a[i]] = [a[i], a[i + 1]]; a[i + 1].day = a[i].day; }
+      if (act === "del") a.splice(i, 1);
+      refresh(true);
+    });
+    box.appendChild(row);
+  });
+}
+
+function refresh(rebuildList) {
+  if (rebuildList) { drawList(); updateLegs(); }
+  drawChips();
+  drawMap();
+  drawSummary();
+  $("trackToggleWrap").hidden = state.track.length < 2;
+  $("clearTrack").hidden = state.track.length < 2;
+  $("showTrack").checked = state.showTrack;
+  save();
+  drawTrips();
+}
+
+const TRIPS_KEY = "route-map-trips-v1";
+function readTrips() {
+  try { const t = JSON.parse(localStorage.getItem(TRIPS_KEY)); return Array.isArray(t) ? t : []; } catch (e) { return []; }
+}
+function writeTrips(list) { localStorage.setItem(TRIPS_KEY, JSON.stringify(list)); }
+function snapshot() {
+  const { tripId, ...rest } = state;
+  return JSON.parse(JSON.stringify(rest));
+}
+function tripMsg(text, kind) { const m = $("tripMsg"); m.className = kind ? `msg ${kind}` : "msg"; m.textContent = text; }
+const fmtSaved = t => { const d = new Date(t); return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} 저장`; };
+
+function isDirty() {
+  if (!state.tripId) return state.points.some(validPt);
+  const t = readTrips().find(x => x.id === state.tripId);
+  return !t || JSON.stringify(t.data) !== JSON.stringify(snapshot());
+}
+
+function confirmClick(btn, label, action) {
+  if (btn.dataset.armed) { action(); return; }
+  const orig = btn.textContent;
+  btn.dataset.armed = "1";
+  btn.textContent = label;
+  btn.classList.add("danger");
+  setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = orig; btn.classList.remove("danger"); } }, 4000);
+}
+
+function drawTrips() {
+  const ul = $("trips");
+  ul.innerHTML = "";
+  const list = readTrips();
+  const cur = list.find(x => x.id === state.tripId);
+  $("tripSum").textContent = list.length ? `저장 ${list.length}개${cur ? ` · 보는 중: ${cur.name}` : ""}` : "저장한 여행 없음";
+  $("tripName").placeholder = `저장할 이름 (비우면 "${state.title || "이름 없는 여행"}")`;
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "trips-empty";
+    li.textContent = "저장한 여행이 아직 없습니다. 위에 이름을 적고 [저장]을 누르면 여기에 쌓입니다.";
+    ul.appendChild(li);
+    return;
+  }
+  const dirty = state.tripId ? isDirty() : false;
+  list.forEach(t => {
+    const li = document.createElement("li");
+    li.className = "trip" + (t.id === state.tripId ? " cur" : "");
+    const info = document.createElement("div");
+    const b = document.createElement("b");
+    b.textContent = t.name;
+    const small = document.createElement("small");
+    const pts = (t.data.points || []).filter(validPt);
+    const days = new Set(pts.map(dayOf)).size;
+    small.textContent = `${fmtSaved(t.savedAt)} · ${days}일 · ${pts.length}곳`;
+    if (t.id === state.tripId) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = dirty ? " · 보는 중 (저장 안 된 변경 있음)" : " · 보는 중";
+      small.appendChild(tag);
+    }
+    info.append(b, small);
+    const btns = document.createElement("div");
+    btns.className = "trip-btns";
+    const load = document.createElement("button");
+    load.type = "button"; load.className = "btn sm"; load.textContent = "불러오기";
+    load.addEventListener("click", () => {
+      if (isDirty() && state.tripId !== t.id) confirmClick(load, "변경 버리고 열기", () => loadTrip(t.id));
+      else loadTrip(t.id);
+    });
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "btn sm"; del.textContent = "삭제";
+    del.addEventListener("click", () => confirmClick(del, "삭제 확인", () => deleteTrip(t.id)));
+    btns.append(load, del);
+    li.append(info, btns);
+    ul.appendChild(li);
+  });
+}
+
+function saveTrip() {
+  const name = $("tripName").value.trim() || state.title.trim() || "이름 없는 여행";
+  const list = readTrips();
+  let t = list.find(x => x.name === name);
+  if (!t) { t = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }; list.unshift(t); }
+  t.name = name;
+  t.savedAt = Date.now();
+  t.data = snapshot();
+  try { writeTrips(list); }
+  catch (e) { tripMsg("브라우저 저장 공간이 부족합니다. GPX 궤적을 지우거나 안 쓰는 여행을 삭제한 뒤 다시 저장해 주세요.", "err"); return; }
+  state.tripId = t.id;
+  $("tripName").value = name;
+  save();
+  drawTrips();
+  tripMsg(`"${name}"(으)로 저장했습니다.`, "ok");
+}
+
+function applyState(next, tripId) {
+  state = normalize(next);
+  if (tripId) state.tripId = tripId; else delete state.tripId;
+  activeDay = 0;
+  lastFitKey = "";
+  syncTitleInputs();
+  setBasemap();
+  refresh(true);
+}
+
+function loadTrip(id) {
+  const t = readTrips().find(x => x.id === id);
+  if (!t) return;
+  applyState(JSON.parse(JSON.stringify(t.data)), t.id);
+  $("tripName").value = t.name;
+  tripMsg(`"${t.name}"을(를) 불러왔습니다.`, "ok");
+}
+
+function deleteTrip(id) {
+  const list = readTrips();
+  const t = list.find(x => x.id === id);
+  try { writeTrips(list.filter(x => x.id !== id)); } catch (e) {}
+  if (state.tripId === id) { delete state.tripId; $("tripName").value = ""; save(); }
+  drawTrips();
+  if (t) tripMsg(`"${t.name}"을(를) 삭제했습니다. 지도에 보이는 내용은 그대로 남아 있습니다.`, "ok");
+}
+
+function newTrip() {
+  applyState({
+    title: "", sub: "", date: "",
+    points: [{ day: 1, name: "", lat: NaN, lon: NaN, cat: "etc", mode: "none" }],
+    track: [], currency: state.currency, basemap: state.basemap
+  });
+  $("tripName").value = "";
+  tripMsg("새 여행을 시작했습니다. 다 입력하면 이름을 붙여 저장하세요.", "ok");
+}
+
+async function exportTrips() {
+  const list = readTrips();
+  if (!list.length) { tripMsg("내보낼 저장 여행이 없습니다. 먼저 [저장]을 눌러 주세요.", "err"); return; }
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const file = new File([JSON.stringify({ app: "route-map", version: 1, trips: list }, null, 1)], `여행동선_백업_${stamp}.json`, { type: "application/json" });
+  const r = await saveFiles([file]);
+  if (r !== "cancel") tripMsg(`여행 ${list.length}개를 백업 파일로 내보냈습니다.`, "ok");
+}
+
+function importTrips(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(String(r.result));
+      const incoming = Array.isArray(data) ? data : data.trips;
+      if (!Array.isArray(incoming)) throw new Error();
+      const valid = incoming.filter(t => t && t.id && t.name && t.data && Array.isArray(t.data.points));
+      if (!valid.length) throw new Error();
+      const list = readTrips();
+      valid.forEach(t => {
+        const i = list.findIndex(x => x.id === t.id);
+        if (i >= 0) list[i] = t; else list.push(t);
+      });
+      list.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+      writeTrips(list);
+      drawTrips();
+      tripMsg(`백업에서 여행 ${valid.length}개를 불러왔습니다. 목록에서 [불러오기]를 누르면 지도에 열립니다.`, "ok");
+    } catch (e) {
+      tripMsg(e && e.name === "QuotaExceededError" ? "브라우저 저장 공간이 부족해 백업을 다 넣지 못했습니다." : "이 페이지에서 내보낸 백업 파일이 아닌 것 같습니다.", "err");
+    }
+  };
+  r.readAsText(file);
+}
+
+$("tripSave").addEventListener("click", saveTrip);
+$("tripName").addEventListener("keydown", e => { if (e.key === "Enter") saveTrip(); });
+$("tripNew").addEventListener("click", e => {
+  if (isDirty()) confirmClick(e.currentTarget, "저장 안 된 변경 버리기", newTrip);
+  else newTrip();
+});
+function loadSample() {
+  applyState({ ...JSON.parse(JSON.stringify(SAMPLE)), basemap: state.basemap });
+  $("tripName").value = "";
+  tripMsg("예시 일정(오사카·교토 3박 4일)을 불러왔습니다. 고쳐서 내 여행으로 저장해도 됩니다.", "ok");
+}
+$("tripSample").addEventListener("click", e => {
+  if (isDirty()) confirmClick(e.currentTarget, "저장 안 된 변경 버리기", loadSample);
+  else loadSample();
+});
+$("tripExport").addEventListener("click", exportTrips);
+$("tripImport").addEventListener("change", e => { const f = e.target.files[0]; if (f) importTrips(f); e.target.value = ""; });
+
+function parseBulk(text) {
+  const out = [], bad = [];
+  let day = 1;
+  const isNum = s => /^-?\d+(?:\.\d+)?$/.test(s);
+  text.split(/\r?\n/).forEach((line, idx) => {
+    const s = line.trim();
+    if (!s) return;
+    const h = s.match(/^(?:day\s*(\d+)|(\d+)\s*일\s*차?|(\d+)\s*일째)\s*[:.]?\s*$/i);
+    if (h) { day = +(h[1] || h[2] || h[3]); return; }
+    const tk = s.split(/\s*[,\t]\s*/).filter(t => t !== "");
+    let p = null, rest = [];
+    if (tk.length >= 2 && isNum(tk[0]) && isNum(tk[1])) { p = { name: "", lat: +tk[0], lon: +tk[1] }; rest = tk.slice(2); }
+    else if (tk.length >= 3 && isNum(tk[1]) && isNum(tk[2])) { p = { name: tk[0], lat: +tk[1], lon: +tk[2] }; rest = tk.slice(3); }
+    if (!p || !validPt(p)) { bad.push(idx + 1); return; }
+    p.day = day; p.cat = "etc"; p.mode = "walk";
+    rest.forEach(t => {
+      const k = WORDS[t.toLowerCase()];
+      if (k) { if (CATS[k]) p.cat = k; else if (MODES[k]) p.mode = k; return; }
+      if (/[¥₩$€]|엔|원|円/.test(t)) { const f = parseFare(t); if (f !== null) p.fare = f; return; }
+      if (/시간|분/.test(t)) { const m = parseMinutes(t); if (m !== null) p.mins = m; }
+    });
+    out.push(p);
+  });
+  return { out, bad };
+}
+
+function bulk(mode) {
+  const { out, bad } = parseBulk($("bulk").value);
+  const msg = $("bulkMsg");
+  if (!out.length) { msg.className = "msg err"; msg.textContent = "읽을 수 있는 줄이 없습니다. '이름, 위도, 경도' 형식인지 확인해 주세요."; return; }
+  state.points = mode === "replace" ? out : state.points.filter(validPt).concat(out);
+  if (mode === "replace") state.track = [];
+  activeDay = 0;
+  refresh(true);
+  msg.className = bad.length ? "msg err" : "msg ok";
+  msg.textContent = `${out.length}개 지점을 넣었습니다.` + (bad.length ? ` ${bad.join(", ")}번째 줄은 형식이 맞지 않아 건너뛰었습니다.` : "");
+}
+
+function guessCat(sym) {
+  const s = (sym || "").toLowerCase();
+  if (/restaurant|food|dining|cafe|coffee|bar|맛집|식당|카페/.test(s)) return "food";
+  if (/lodging|hotel|hostel|camp|숙소|숙박|호텔/.test(s)) return "stay";
+  if (/scenic|museum|park|attraction|view|shopping|landmark|구경|관광|명소/.test(s)) return "sight";
+  return "etc";
+}
+
+function readGpx(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("GPX(XML) 형식을 읽을 수 없습니다.");
+  const childText = (n, tag) => { const c = n.getElementsByTagName(tag)[0]; return c ? c.textContent.trim() : ""; };
+  const toPt = (n, seg) => {
+    const t = childText(n, "time");
+    return { lat: parseFloat(n.getAttribute("lat")), lon: parseFloat(n.getAttribute("lon")), t: t ? Date.parse(t) : NaN, seg };
+  };
+  let track = [];
+  Array.from(doc.getElementsByTagName("trk")).forEach((trk, k) => {
+    Array.from(trk.getElementsByTagName("trkpt")).forEach(n => track.push(toPt(n, k)));
+  });
+  if (track.length < 2) Array.from(doc.getElementsByTagName("rtept")).forEach(n => track.push(toPt(n, 0)));
+  track = track.filter(validPt);
+  const wpts = Array.from(doc.getElementsByTagName("wpt"))
+    .map(n => ({ ...toPt(n, 0), name: childText(n, "name"), cat: guessCat(childText(n, "sym") + " " + childText(n, "type")) }))
+    .filter(validPt);
+  const meta = doc.getElementsByTagName("metadata")[0];
+  const name = (meta && childText(meta, "name")) || childText(doc, "name");
+  if (track.length < 2 && wpts.length < 2) throw new Error("파일에서 좌표를 2개 이상 찾지 못했습니다.");
+
+  const timed = track.filter(p => Number.isFinite(p.t));
+  const localDate = t => { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+  let dayFor;
+  if (timed.length > track.length * 0.5 || (track.length < 2 && wpts.some(w => Number.isFinite(w.t)))) {
+    const keys = Array.from(new Set(track.concat(wpts).filter(p => Number.isFinite(p.t)).sort((a, b) => a.t - b.t).map(p => localDate(p.t))));
+    dayFor = p => Number.isFinite(p.t) ? keys.indexOf(localDate(p.t)) + 1 : null;
+  } else {
+    dayFor = p => p.seg + 1;
+  }
+  let last = 1;
+  track.forEach(p => { const d = dayFor(p); p.day = d || last; last = p.day; });
+
+  const nearestDay = w => {
+    let best = Infinity, d = 1;
+    for (let i = 0; i < track.length; i += Math.max(1, Math.floor(track.length / 3000))) {
+      const q = track[i], dd = (q.lat - w.lat) ** 2 + (q.lon - w.lon) ** 2;
+      if (dd < best) { best = dd; d = q.day; }
+    }
+    return d;
+  };
+  wpts.forEach(w => { w.day = (Number.isFinite(w.t) && dayFor(w)) || (track.length ? nearestDay(w) : 1); });
+  if (wpts.every(w => Number.isFinite(w.t))) wpts.sort((a, b) => a.t - b.t);
+  else wpts.sort((a, b) => a.day - b.day);
+
+  const clean = p => ({ day: p.day, name: p.name || "", lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6), cat: p.cat || "etc", mode: "none" });
+  let points = wpts.map(clean);
+  if (!points.length) {
+    const days = Array.from(new Set(track.map(p => p.day)));
+    days.forEach(d => {
+      const seg = track.filter(p => p.day === d);
+      points.push(clean({ ...seg[0], name: `${d}일차 출발` }));
+      points.push(clean({ ...seg[seg.length - 1], name: `${d}일차 도착` }));
+    });
+  }
+  return { track: track.map(p => ({ day: p.day, lat: p.lat, lon: p.lon })), points, name, dayCount: new Set(track.map(p => p.day).concat(points.map(p => p.day))).size, wptCount: wpts.length };
+}
+
+function loadGpxFile(file) {
+  const msg = $("gpxMsg");
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const g = readGpx(String(r.result));
+      state.track = g.track;
+      state.points = g.points;
+      state.showTrack = true;
+      if (g.name) state.title = g.name;
+      activeDay = 0;
+      syncTitleInputs();
+      refresh(true);
+      msg.className = "msg ok";
+      msg.textContent = `${file.name}: 궤적 ${g.track.length.toLocaleString()}점, 웨이포인트 ${g.wptCount}개, ${g.dayCount}일로 나눴습니다.`;
+    } catch (e) {
+      msg.className = "msg err";
+      msg.textContent = e.message;
+    }
+  };
+  r.onerror = () => { msg.className = "msg err"; msg.textContent = "파일을 읽지 못했습니다."; };
+  r.readAsText(file);
+}
+
+function syncTitleInputs() {
+  $("inTitle").value = state.title || "";
+  $("inSub").value = state.sub || "";
+  $("inDate").value = state.date || "";
+  $("inCur").value = state.currency || "¥";
+  $("inBase").value = state.basemap;
+}
+$("inBase").addEventListener("change", e => { state.basemap = e.target.value; setBasemap(); drawMap(); save(); });
+$("inCur").addEventListener("change", e => { state.currency = e.target.value; refresh(true); });
+
+[["inTitle", "title"], ["inSub", "sub"], ["inDate", "date"]].forEach(([id, k]) => {
+  $(id).addEventListener("input", e => { state[k] = e.target.value; drawSummary(); save(); drawTrips(); });
+});
+const lastPt = () => state.points[state.points.length - 1];
+function addPoint(day) {
+  state.points.push({ day, name: "", lat: NaN, lon: NaN, cat: "sight", mode: lastPt() ? modeOf(lastPt()) === "none" ? "walk" : modeOf(lastPt()) : "walk" });
+  refresh(true);
+  $(`pn${state.points.length - 1}`).focus();
+}
+$("addPt").addEventListener("click", () => addPoint(lastPt() ? dayOf(lastPt()) : 1));
+$("addDay").addEventListener("click", () => addPoint(lastPt() ? dayOf(lastPt()) + 1 : 1));
+$("clearAll").addEventListener("click", () => {
+  state.points = [{ day: 1, name: "", lat: NaN, lon: NaN, cat: "etc", mode: "none" }];
+  state.track = [];
+  activeDay = 0;
+  refresh(true);
+});
+$("bulkReplace").addEventListener("click", () => bulk("replace"));
+$("bulkAppend").addEventListener("click", () => bulk("append"));
+$("gpxFile").addEventListener("change", e => { const f = e.target.files[0]; if (f) loadGpxFile(f); e.target.value = ""; });
+const drop = $("drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadGpxFile(f); });
+$("showTrack").addEventListener("change", e => { state.showTrack = e.target.checked; refresh(false); });
+$("clearTrack").addEventListener("click", () => { state.track = []; refresh(false); $("gpxMsg").textContent = ""; });
+
+function svgString(svg) {
+  const c = svg.cloneNode(true);
+  c.setAttribute("xmlns", NS);
+  const cs = getComputedStyle(document.documentElement);
+  return c.outerHTML.replace(/var\(--([\w-]+)\)/g, (_, v) => cs.getPropertyValue("--" + v).trim());
+}
+
+const loadImg = src => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+
+function wrapLines(ctx, text, maxW) {
+  const lines = [];
+  let line = "";
+  for (const word of String(text).split(/(\s+)/)) {
+    if (ctx.measureText(line + word).width <= maxW) { line += word; continue; }
+    if (line.trim()) { lines.push(line.trim()); line = ""; }
+    for (const ch of word.trimStart()) {
+      if (ctx.measureText(line + ch).width > maxW && line) { lines.push(line); line = ""; }
+      line += ch;
+    }
+  }
+  if (line.trim()) lines.push(line.trim());
+  return lines;
+}
+
+function ellipsize(ctx, text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+  return t + "…";
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function loadTile(url) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.crossOrigin = "anonymous";
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = url;
+  });
+}
+
+async function drawTiles(ctx, view, W, H, y0) {
+  const b = BASEMAPS[state.basemap];
+  if (!b || !b.url) return false;
+  const zi = Math.max(0, Math.min(b.maxZoom, Math.floor(view.z) + 1));
+  const ts = 256 * 2 ** (view.z - zi);
+  const left = view.cx - view.ox, top = view.cy - view.oy;
+  const n = 2 ** zi;
+  const tx0 = Math.floor(left / ts), tx1 = Math.floor((left + W) / ts);
+  const ty0 = Math.max(0, Math.floor(top / ts)), ty1 = Math.min(n - 1, Math.floor((top + H) / ts));
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, y0, W, H); ctx.clip();
+  const jobs = [];
+  for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) {
+    const url = b.url.replace("{z}", zi).replace("{x}", ((tx % n) + n) % n).replace("{y}", ty);
+    jobs.push(loadTile(url).then(im => ctx.drawImage(im, tx * ts - left, y0 + ty * ts - top, ts + 0.6, ts + 0.6)).catch(() => {}));
+  }
+  await Promise.all(jobs);
+  ctx.restore();
+  return true;
+}
+
+function currentView(CW) {
+  const size = lmap.getSize(), c = lmap.getCenter();
+  const H = Math.round(CW * size.y / size.x);
+  const z = lmap.getZoom() + Math.log2(CW / size.x);
+  const cx = mercX(c.lng, z), cy = mercY(c.lat, z), ox = CW / 2, oy = H / 2;
+  return { z, cx, cy, ox, oy, H, px: p => [ox + mercX(p.lon, z) - cx, oy + mercY(p.lat, z) - cy], pxPerKm: 1000 / metersPerPx(c.lat, z) };
+}
+
+async function renderImage(day, current) {
+  const S = 2, CW = 540, PX = 24;
+  const cs = getComputedStyle(document.documentElement);
+  const C = n => cs.getPropertyValue("--" + n).trim();
+  const SANS = `"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+  const fTitle = `700 28px "Gowun Batang", "Nanum Myeongjo", serif`;
+  const fDay = `700 20px "Gowun Batang", "Nanum Myeongjo", serif`;
+  const fName = `600 14px ${SANS}`;
+  const fSmall = `400 12px ${SANS}`;
+  const fMono = `500 11px "IBM Plex Mono", ui-monospace, monospace`;
+
+  const svg = document.createElementNS(NS, "svg");
+  const dims = mapDims(CW);
+  const view = current && lmap ? currentView(CW) : fitView(getFocus(day), dims);
+  const prev = activeDay;
+  activeDay = day;
+  drawMap(svg, CW, view);
+  activeDay = prev;
+  const MH = view.H || dims.H;
+  svg.setAttribute("width", CW * S);
+  svg.setAttribute("height", MH * S);
+  const img = await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgString(svg)));
+
+  const pts = state.points.filter(validPt);
+  const useTrack = state.showTrack && state.track.length >= 2;
+  let km = 0, mins = 0, fare = 0;
+  pts.forEach((p, i) => {
+    if (!i || (day && dayOf(p) !== day)) return;
+    if (!useTrack) km += haversine(pts[i - 1], p);
+    if (hasNum(p.mins)) mins += p.mins;
+    if (hasNum(p.fare)) fare += p.fare;
+  });
+  if (useTrack) for (let i = 1; i < state.track.length; i++) if (!day || dayOf(state.track[i]) === day) km += haversine(state.track[i - 1], state.track[i]);
+  const items = pts.map((p, i) => ({ p, no: i + 1, prev: i > 0 })).filter(o => !day || dayOf(o.p) === day);
+  const groups = [];
+  items.forEach(o => {
+    const d = dayOf(o.p);
+    if (!groups.length || groups[groups.length - 1].d !== d) groups.push({ d, items: [] });
+    groups[groups.length - 1].items.push(o);
+  });
+  const showGroupHead = !day && groups.length > 1;
+
+  const m = document.createElement("canvas").getContext("2d");
+  m.font = fTitle;
+  const titleLines = wrapLines(m, state.title || "여행", CW - PX * 2);
+  m.font = fSmall;
+  const subLines = state.sub ? wrapLines(m, state.sub, CW - PX * 2) : [];
+
+  let H = 28 + (state.date ? 20 : 0) + titleLines.length * 36 + subLines.length * 18 + 18 + 34 + MH + 14;
+  groups.forEach(g => { H += (showGroupHead ? 30 : 0) + g.items.length * 30; });
+  H += 26;
+
+  const cv = document.createElement("canvas");
+  cv.width = CW * S;
+  cv.height = Math.ceil(H * S);
+  const ctx = cv.getContext("2d");
+  ctx.scale(S, S);
+  ctx.fillStyle = C("paper");
+  ctx.fillRect(0, 0, CW, H);
+  ctx.textBaseline = "alphabetic";
+
+  let y = 28;
+  if (state.date) {
+    ctx.font = fMono; ctx.fillStyle = C("paper-muted");
+    ctx.fillText(state.date, PX, y + 10);
+    y += 20;
+  }
+  ctx.font = fTitle; ctx.fillStyle = C("paper-ink");
+  titleLines.forEach(l => { ctx.fillText(l, PX, y + 28); y += 36; });
+  ctx.font = fSmall; ctx.fillStyle = C("paper-muted");
+  subLines.forEach(l => { ctx.fillText(l, PX, y + 13); y += 18; });
+  y += 18;
+
+  ctx.font = fDay; ctx.fillStyle = C("paper-ink");
+  ctx.fillText(day ? `${day}일차` : "전체 일정", PX, y + 20);
+  const statText = [`${fmtKm(km)} km${useTrack ? "" : " 직선"}`, mins ? fmtMin(mins) : "", fare ? fmtFare(fare) : ""].filter(Boolean).join(" · ");
+  ctx.font = fMono; ctx.fillStyle = C("paper-muted"); ctx.textAlign = "right";
+  ctx.fillText(statText, CW - PX, y + 19);
+  ctx.textAlign = "left";
+  y += 34;
+
+  const tiled = await drawTiles(ctx, view, CW, MH, y);
+  ctx.drawImage(img, 0, y, CW, MH);
+  if (tiled) {
+    const at = BASEMAPS[state.basemap].short;
+    ctx.font = `400 9px ${SANS}`;
+    const aw = ctx.measureText(at).width + 8;
+    ctx.fillStyle = C("paper"); ctx.globalAlpha = 0.85;
+    ctx.fillRect(CW - aw, y + MH - 14, aw, 14);
+    ctx.globalAlpha = 1; ctx.fillStyle = C("paper-muted");
+    ctx.fillText(at, CW - aw + 4, y + MH - 4);
+  }
+  y += MH;
+  ctx.fillStyle = C("paper-grid");
+  ctx.fillRect(0, y, CW, 1);
+  y += 14;
+
+  groups.forEach(g => {
+    if (showGroupHead) {
+      ctx.font = `700 15px "Gowun Batang", serif`; ctx.fillStyle = C("paper-ink");
+      ctx.fillText(`${g.d}일차`, PX, y + 20);
+      y += 30;
+    }
+    g.items.forEach(o => {
+      const cat = catOf(o.p), cy = y + 14, cx = PX + 12, r = 11;
+      if (cat === "stay") roundRectPath(ctx, cx - r, cy - r, r * 2, r * 2, 4);
+      else { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); }
+      ctx.fillStyle = cat === "etc" ? C("paper") : C(CATS[cat].color.slice(2));
+      ctx.fill();
+      if (cat === "etc") { ctx.strokeStyle = C("paper-ink"); ctx.lineWidth = 1.5; ctx.stroke(); }
+      ctx.save();
+      ctx.translate(cx, cy); ctx.scale(14 / 24, 14 / 24); ctx.translate(-12, -12);
+      ctx.strokeStyle = cat === "etc" ? C("paper-ink") : "#ffffff";
+      ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.stroke(new Path2D(ICONS[cat]));
+      ctx.restore();
+
+      ctx.font = fMono; ctx.fillStyle = C("paper-muted");
+      ctx.fillText(String(o.no), PX + 30, cy + 4);
+      const via = o.prev ? [modeOf(o.p) === "none" ? "" : `${MODES[modeOf(o.p)].label}로`, legNote(o.p)].filter(Boolean).join(" · ") : "출발";
+      ctx.font = fSmall;
+      const viaW = ctx.measureText(via).width;
+      ctx.textAlign = "right";
+      ctx.fillText(via, CW - PX, cy + 4);
+      ctx.textAlign = "left";
+      ctx.font = fName; ctx.fillStyle = C("paper-ink");
+      ctx.fillText(ellipsize(ctx, o.p.name || `지점 ${o.no}`, CW - PX - viaW - 12 - (PX + 52)), PX + 52, cy + 5);
+      y += 30;
+    });
+  });
+
+  return new Promise((res, rej) => cv.toBlob(b => b ? res(b) : rej(new Error("toBlob")), "image/png"));
+}
+
+async function saveFiles(files) {
+  const coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  if (coarse && navigator.canShare && navigator.canShare({ files })) {
+    try { await navigator.share({ files }); return "shared"; }
+    catch (e) { if (e.name === "AbortError") return "cancel"; }
+  }
+  for (const f of files) {
+    const url = URL.createObjectURL(f);
+    const a = document.createElement("a");
+    a.href = url; a.download = f.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    await new Promise(r => setTimeout(r, 350));
+  }
+  return "downloaded";
+}
+
+async function exportImages(days, current) {
+  const msg = $("saveMsg");
+  if (state.points.filter(validPt).length < 2) { msg.className = "msg err"; msg.textContent = "지점을 2개 이상 넣어야 이미지를 만들 수 있습니다."; return; }
+  msg.className = "msg"; msg.textContent = "이미지를 만드는 중입니다…";
+  try {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    const base = (state.title || "여행동선").replace(/[\\/:*?"<>|]/g, "").trim() || "여행동선";
+    const files = [];
+    for (const d of days) {
+      const blob = await renderImage(d, current);
+      files.push(new File([blob], `${base}_${d ? `${d}일차` : "전체"}.png`, { type: "image/png" }));
+    }
+    const r = await saveFiles(files);
+    msg.className = r === "cancel" ? "msg" : "msg ok";
+    msg.textContent = r === "cancel" ? "" : r === "shared" ? `${files.length}장을 공유 창으로 넘겼습니다.` : `${files.length}장을 내려받았습니다.`;
+  } catch (e) {
+    msg.className = "msg err";
+    msg.textContent = "이미지를 만들지 못했습니다. 크롬이나 사파리 최신 버전에서 다시 시도해 주세요.";
+  }
+}
+
+$("saveCur").addEventListener("click", () => exportImages([activeDay], true));
+$("saveAll").addEventListener("click", () => {
+  const days = dayList();
+  exportImages(days.length ? days : [0]);
+});
+
+$("copySvg").addEventListener("click", () => {
+  const s = svgString($("map"));
+  const msg = $("copyMsg");
+  const ok = () => { msg.className = "msg ok"; msg.textContent = "복사했습니다. 메모장에 붙여넣고 .svg 로 저장하면 됩니다."; };
+  const fail = () => {
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    msg.className = "msg"; msg.textContent = "자동 복사가 막혀 있어 아래 코드를 직접 복사해 주세요.";
+    msg.appendChild(ta); ta.select();
+  };
+  try { navigator.clipboard.writeText(s).then(ok, fail); } catch (e) { fail(); }
+});
+
+let lastW = 0;
+new ResizeObserver(() => {
+  const w = $("mapBox").clientWidth;
+  if (Math.abs(w - lastW) > 2) { lastW = w; screenVH = window.innerHeight || screenVH; drawMap(); }
+}).observe($("mapBox"));
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawMap());
+
+const wideMq = window.matchMedia ? matchMedia("(min-width: 960px)") : null;
+const syncTripBox = () => { document.querySelectorAll("details.sec").forEach(d => { d.open = !wideMq || wideMq.matches; }); };
+syncTripBox();
+if (wideMq && wideMq.addEventListener) wideMq.addEventListener("change", syncTripBox);
+
+initLeaflet();
+syncTitleInputs();
+refresh(true);
+</script>
+</body>
+</html>
